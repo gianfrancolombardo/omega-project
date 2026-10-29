@@ -4,6 +4,7 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   allowedDevOrigins: ["127.0.0.1"],
+  serverExternalPackages: ["pg"],
   async headers() {
     return [
       {

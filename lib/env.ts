@@ -22,7 +22,7 @@ export type AppConfig = {
   notifyWebhookUrl: string | null;
   silenceCloseSeconds: number;
   noiseReduction: "near_field" | "far_field";
-  vercel: boolean;
+  ephemeral: boolean;
 };
 
 function clean(value: string | undefined): string | null {
@@ -64,8 +64,12 @@ export function parseEnv(source: Record<string, string | undefined>): AppConfig 
     notifyWebhookUrl: clean(source.NOTIFY_WEBHOOK_URL),
     silenceCloseSeconds: clampSilenceSeconds(numberOr(source.SILENCE_CLOSE_SECONDS, 75)),
     noiseReduction: noise === "near_field" ? "near_field" : "far_field",
-    vercel: source.VERCEL === "1",
+    ephemeral: isEphemeralRuntime(source),
   };
+}
+
+function isEphemeralRuntime(source: Record<string, string | undefined>): boolean {
+  return source.VERCEL === "1" || source.NETLIFY === "true" || Boolean(source.AWS_LAMBDA_FUNCTION_NAME?.trim());
 }
 
 export function memoryPersistence(config: AppConfig): {
@@ -73,5 +77,5 @@ export function memoryPersistence(config: AppConfig): {
   persistent: boolean;
 } {
   if (config.databaseUrl) return { store: "postgres", persistent: true };
-  return { store: "sqlite", persistent: !config.vercel };
+  return { store: "sqlite", persistent: !config.ephemeral };
 }

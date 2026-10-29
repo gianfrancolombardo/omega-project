@@ -1,4 +1,4 @@
-import { Pool, type PoolConfig } from "pg";
+import { Client, type ClientConfig } from "pg";
 
 import { sqlParams, toPostgresSql, type Db, type SqlRow, type SqlValue } from "@/lib/db/sql";
 
@@ -11,13 +11,67 @@ export type QueryClient = {
   query(sql: string, params?: SqlValue[]): Promise<QueryResult>;
 };
 
-export function postgresPoolOptions(databaseUrl: string): PoolConfig {
+export type SimpleConnection = {
+  query(text: string): Promise<QueryResult>;
+  end(): Promise<void>;
+};
+
+// Supabase transaction mode (port 6543) drops session state after each transaction.
+// node-postgres sends parameters with the extended protocol, which that pooler rejects.
+// Each call opens one client, sends a simple query with the values inlined, and closes it.
+export function postgresClientConfig(databaseUrl: string): ClientConfig {
   const local = /localhost|127\.0\.0\.1/.test(databaseUrl);
-  const sslDisabled = /sslmode=disable/.test(databaseUrl);
+  const sslDisabled = /(?:[?&])sslmode=disable(?:&|$)/.test(databaseUrl);
   return {
-    connectionString: databaseUrl,
-    max: 1,
+    connectionString: stripPoolerHints(databaseUrl),
     ssl: local || sslDisabled ? undefined : { rejectUnauthorized: false },
+    connectionTimeoutMillis: 10_000,
+    application_name: "charla",
+  };
+}
+
+export function stripPoolerHints(databaseUrl: string): string {
+  try {
+    const url = new URL(databaseUrl);
+    url.searchParams.delete("pgbouncer");
+    url.searchParams.delete("sslmode");
+    return url.toString();
+  } catch {
+    return databaseUrl;
+  }
+}
+
+export function postgresLiteral(value: SqlValue): string {
+  if (value === null) return "NULL";
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "NULL";
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+export function bindPostgresValues(sql: string, params: SqlValue[] = []): string {
+  return sql.replace(/\$(\d+)\b/g, (_match, digits: string) => {
+    const index = Number(digits) - 1;
+    if (!Number.isInteger(index) || index < 0 || index >= params.length) {
+      throw new Error("SQL parameter count does not match");
+    }
+    return postgresLiteral(params[index] ?? null);
+  });
+}
+
+export function createSimplePostgresClient(
+  databaseUrl: string,
+  connect: (config: ClientConfig) => Promise<SimpleConnection> = connectPg,
+): QueryClient {
+  const config = postgresClientConfig(databaseUrl);
+  return {
+    async query(sql, params = []) {
+      const text = bindPostgresValues(sql, params);
+      const connection = await connect(config);
+      try {
+        return await connection.query(text);
+      } finally {
+        await connection.end();
+      }
+    },
   };
 }
 
@@ -41,10 +95,18 @@ export function createPostgresDb(client: QueryClient): Db {
   };
 }
 
-export function openPostgres(databaseUrl: string, poolFactory: (url: string) => QueryClient = defaultPool): Db {
-  return createPostgresDb(poolFactory(databaseUrl));
+export function openPostgres(databaseUrl: string, clientFactory: (url: string) => QueryClient = createSimplePostgresClient): Db {
+  return createPostgresDb(clientFactory(databaseUrl));
 }
 
-function defaultPool(databaseUrl: string): QueryClient {
-  return new Pool(postgresPoolOptions(databaseUrl));
+async function connectPg(config: ClientConfig): Promise<SimpleConnection> {
+  const client = new Client(config);
+  await client.connect();
+  return {
+    query: async (text) => {
+      const result = await client.query(text);
+      return { rows: result.rows as SqlRow[], rowCount: result.rowCount };
+    },
+    end: () => client.end(),
+  };
 }

@@ -130,6 +130,9 @@ describe("env and time", () => {
     expect(parseEnv({ OPENAI_VOICE_SPEED: "0.4", SILENCE_CLOSE_SECONDS: "80", OPENAI_NOISE_REDUCTION: "near_field" }).noiseReduction).toBe("near_field");
     expect(memoryPersistence(parseEnv({ DATABASE_URL: "postgres://db/charla" }))).toEqual({ store: "postgres", persistent: true });
     expect(memoryPersistence(parseEnv({ VERCEL: "1" }))).toEqual({ store: "sqlite", persistent: false });
+    expect(memoryPersistence(parseEnv({ NETLIFY: "true" }))).toEqual({ store: "sqlite", persistent: false });
+    expect(memoryPersistence(parseEnv({ AWS_LAMBDA_FUNCTION_NAME: "charla" }))).toEqual({ store: "sqlite", persistent: false });
+    expect(memoryPersistence(parseEnv({ DATABASE_URL: "postgres://db/charla", NETLIFY: "true" }))).toEqual({ store: "postgres", persistent: true });
     expect(memoryPersistence(parseEnv({}))).toEqual({ store: "sqlite", persistent: true });
   });
 

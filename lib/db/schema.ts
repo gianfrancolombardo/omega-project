@@ -94,9 +94,25 @@ export const SCHEMA_STATEMENTS = [
   "CREATE INDEX IF NOT EXISTS alerts_created ON alerts (created_at)",
 ];
 
-export async function migrate(db: Db, nowIso: string, timezone: string): Promise<void> {
+// The database owner used by DATABASE_URL bypasses RLS. The public Supabase API does not.
+export const POSTGRES_LOCKDOWN = [
+  "ALTER TABLE profile ENABLE ROW LEVEL SECURITY",
+  "ALTER TABLE facts ENABLE ROW LEVEL SECURITY",
+  "ALTER TABLE sessions ENABLE ROW LEVEL SECURITY",
+  "ALTER TABLE mood_signals ENABLE ROW LEVEL SECURITY",
+  "ALTER TABLE alerts ENABLE ROW LEVEL SECURITY",
+  "ALTER TABLE microgoals ENABLE ROW LEVEL SECURITY",
+  "ALTER TABLE proactive_days ENABLE ROW LEVEL SECURITY",
+];
+
+export async function migrate(db: Db, nowIso: string, timezone: string, dialect: "sqlite" | "postgres" = "sqlite"): Promise<void> {
   for (const statement of SCHEMA_STATEMENTS) {
     await db.exec(statement);
+  }
+  if (dialect === "postgres") {
+    for (const statement of POSTGRES_LOCKDOWN) {
+      await db.exec(statement);
+    }
   }
   await db.run(
     `INSERT INTO profile (

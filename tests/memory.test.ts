@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import { openSqliteFile, openSqliteMemory } from "@/lib/db/sqlite";
-import { migrate } from "@/lib/db/schema";
+import { migrate, POSTGRES_LOCKDOWN, SCHEMA_STATEMENTS } from "@/lib/db/schema";
 import { createMemoryStore } from "@/lib/db/memory-store";
-import { createPostgresDb, openPostgres, postgresPoolOptions } from "@/lib/db/postgres";
+import {
+  bindPostgresValues,
+  createPostgresDb,
+  createSimplePostgresClient,
+  openPostgres,
+  postgresClientConfig,
+  postgresLiteral,
+} from "@/lib/db/postgres";
 import { sqlParams, toPostgresSql, type Db } from "@/lib/db/sql";
 import { openStoreFromConfig, resetStoreForTests, getStore } from "@/lib/db/index";
 import { parseEnv } from "@/lib/env";
@@ -108,9 +115,21 @@ describe("postgres adapter", () => {
   it("translates placeholders and never opens a live pool in tests", async () => {
     expect(toPostgresSql("SELECT * FROM t WHERE a = ? AND b = ?")).toBe("SELECT * FROM t WHERE a = $1 AND b = $2");
     expect(sqlParams([true, false, undefined, 2, "x"])).toEqual([1, 0, null, 2, "x"]);
-    expect(postgresPoolOptions("postgres://localhost/charla").ssl).toBeUndefined();
-    expect(postgresPoolOptions("postgres://db.example/charla?sslmode=disable").ssl).toBeUndefined();
-    expect(postgresPoolOptions("postgres://db.example/charla").ssl).toEqual({ rejectUnauthorized: false });
+    expect(postgresLiteral("O'Brien")).toBe("'O''Brien'");
+    expect(postgresLiteral(null)).toBe("NULL");
+    expect(bindPostgresValues("SELECT $1, $2", ["cuesta $1", 3])).toBe("SELECT 'cuesta $1', 3");
+    expect(() => bindPostgresValues("SELECT $2", ["only"])).toThrow(/parameter count/);
+    const local = postgresClientConfig("postgres://localhost/charla");
+    expect(local.ssl).toBeUndefined();
+    expect(postgresClientConfig("postgres://db.example/charla?sslmode=disable").ssl).toBeUndefined();
+    const pooled = postgresClientConfig(
+      "postgresql://postgres.abc:secret@aws-0-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require",
+    );
+    expect(pooled.ssl).toEqual({ rejectUnauthorized: false });
+    expect(pooled.connectionString).toBe("postgresql://postgres.abc:secret@aws-0-sa-east-1.pooler.supabase.com:6543/postgres");
+    expect(pooled).not.toHaveProperty("max");
+    expect(postgresClientConfig("not a url").connectionString).toBe("not a url");
+    expect(postgresLiteral(Number.NaN)).toBe("NULL");
     const seen: string[] = [];
     const db = createPostgresDb({
       async query(sql, params) {
@@ -132,6 +151,54 @@ describe("postgres adapter", () => {
     });
     expect(url).toBe("postgres://example/charla");
     expect(await opened.get("SELECT 1")).toBeUndefined();
+    const calls: string[] = [];
+    let ended = 0;
+    const simple = createSimplePostgresClient("postgres://db.example/charla", async () => ({
+      async query(text) {
+        calls.push(text);
+        if (text.includes("boom")) throw new Error("boom");
+        return { rows: [{ ok: 1 }], rowCount: 1 };
+      },
+      async end() {
+        ended += 1;
+      },
+    }));
+    expect(await simple.query("SELECT $1 AS name", ["Ana"])).toEqual({ rows: [{ ok: 1 }], rowCount: 1 });
+    await expect(simple.query("SELECT $1", ["boom"])).rejects.toThrow("boom");
+    expect(calls).toEqual(["SELECT 'Ana' AS name", "SELECT 'boom'"]);
+    expect(ended).toBe(2);
+    await expect(
+      createSimplePostgresClient("postgres://db.example/charla", async () => {
+        throw new Error("no connect");
+      }).query("SELECT 1"),
+    ).rejects.toThrow("no connect");
+    const sqlFile = fs.readFileSync(path.join(process.cwd(), "supabase", "schema.sql"), "utf8");
+    for (const statement of SCHEMA_STATEMENTS) {
+      const table = /TABLE(?: IF NOT EXISTS)? (\w+)/.exec(statement)?.[1];
+      if (table) expect(sqlFile).toContain(table);
+    }
+    for (const statement of POSTGRES_LOCKDOWN) expect(sqlFile).toContain(statement);
+    const executed: string[] = [];
+    await migrate(
+      {
+        async exec(sql) {
+          executed.push(sql);
+        },
+        async all() {
+          return [];
+        },
+        async get() {
+          return { id: "primary" };
+        },
+        async run() {
+          return { changes: 0 };
+        },
+      } as Db,
+      "2026-10-29T14:00:00.000Z",
+      "America/Montevideo",
+      "postgres",
+    );
+    expect(executed.some((sql) => sql.includes("ENABLE ROW LEVEL SECURITY"))).toBe(true);
   });
 
   it("builds a store from either opener", async () => {

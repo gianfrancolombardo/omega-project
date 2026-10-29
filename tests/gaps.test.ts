@@ -346,7 +346,7 @@ describe("tool and setup edges", () => {
     expect((await handleSetupPost(deps, pinHeaders(), { action: "inventar" })).status).toBe(400);
     expect((await handleSetupPost(deps, pinHeaders(), { action: "delete_fact" })).status).toBe(400);
     expect((await handleSetupPost(deps, pinHeaders(), null)).status).toBe(400);
-    const warned = await handleSetupGet(depsFor(store, { vercel: true }, fetchRoutes(), () => clock), pinHeaders());
+    const warned = await handleSetupGet(depsFor(store, { ephemeral: true }, fetchRoutes(), () => clock), pinHeaders());
     expect(JSON.stringify(warned.body)).toContain("DATABASE_URL");
     expect((await handlePublicProfile(deps, new Headers())).status).toBe(401);
     expect((await handleHealth(depsFor(store, { openAiApiKey: null, setupPin: null }))).body).toMatchObject({ openai: false, pin: false });

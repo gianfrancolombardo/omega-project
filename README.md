@@ -26,7 +26,7 @@ Los números 911 y 0800 0767 / *0767 salen de la documentación del proyecto. Co
 
 - Node.js 22
 - Una clave de OpenAI con acceso al modelo realtime
-- Para el deploy, una base Postgres (Neon, Supabase o Vercel Postgres)
+- Para el deploy, Postgres de Supabase (connection string del Transaction pooler, puerto 6543)
 
 ## Variables
 
@@ -36,7 +36,7 @@ Copiá `.env.example` a `.env`.
 | --- | --- | --- |
 | `OPENAI_API_KEY` | Sí, para hablar | Clave del servidor. Nunca va en el navegador. |
 | `SETUP_PIN` | Sí | PIN familiar. Protege la configuración y el gasto de la voz. |
-| `DATABASE_URL` | Sí en Vercel | Postgres. Sin esto, en Vercel la memoria se borra en cada deploy. |
+| `DATABASE_URL` | Sí en Netlify | Postgres de Supabase, puerto 6543. Sin esto, en Netlify la memoria se borra en cada deploy. |
 | `OPENAI_REALTIME_MODEL` | No | Default `gpt-realtime-2.1-mini`. |
 | `OPENAI_VOICE` | No | Default `marin`. También sirve `cedar`. |
 | `OPENAI_VOICE_SPEED` | No | Default `0.92`. Con audición reducida baja a 0.86. |
@@ -48,7 +48,7 @@ Copiá `.env.example` a `.env`.
 | `NOTIFY_WEBHOOK_URL` | No | POST JSON cuando hay una alerta. Vacío: solo se guarda. |
 | `CHARLA_DB_PATH` | No | SQLite local. Default `data/charla.sqlite`. |
 
-Gian tiene que cargar, como mínimo, `OPENAI_API_KEY` y `SETUP_PIN`. En Vercel, también `DATABASE_URL`.
+Gian tiene que cargar, como mínimo, `OPENAI_API_KEY` y `SETUP_PIN`. En Netlify, también `DATABASE_URL`. Ninguna lleva el prefijo `NEXT_PUBLIC_`: así quedan en las funciones y no en el navegador.
 
 ## Correr en la máquina
 
@@ -75,16 +75,29 @@ npm run lint
 
 Las vistas de la interfaz, sin micrófono, están en `/?estado=reposo`, `escuchando`, `pensando`, `hablando`, `problema` e `invitacion`. Hay capturas en `docs/screenshots/`. En local abrí siempre `http://127.0.0.1:3847`: el servidor de desarrollo acepta ese origen.
 
-El micrófono exige un contexto seguro. `localhost` y el HTTPS de Vercel sirven. Una IP de la red en `http://` no puede abrir el micrófono.
+El micrófono exige un contexto seguro. `localhost` y el HTTPS de Netlify sirven. Una IP de la red en `http://` no puede abrir el micrófono.
 
-## Deploy en Vercel
+## Supabase
 
-1. Importá el repositorio en Vercel. El framework es Next.js. No hace falta un comando de build especial.
-2. Cargá las variables. `DATABASE_URL` puede llevar `sslmode=require`.
-3. Deploy.
-4. Abrí la URL `https://…` en la tablet, no una copia por HTTP en la red local.
+1. Creá un proyecto en Supabase.
+2. En **Connect**, elegí **Transaction pooler** y copiá la URI. El host es `….pooler.supabase.com` y el puerto es **6543**. Esa vía es IPv4 y sirve para las funciones de Netlify. El puerto 5432 directo, en el plan gratis, es solo IPv6.
+3. Pegá esa URI en `DATABASE_URL`. Si la contraseña tiene símbolos (`@`, `#`, `?`), usá la versión codificada para URL.
+4. La primera visita a la app crea las tablas. Si preferís hacerlo a mano, abrí el **SQL Editor** y pegá `supabase/schema.sql`.
+5. La app habla con la base desde el servidor, con esa URI. No usa la clave `anon`.
 
-La memoria local de SQLite no sobrevive en las funciones de Vercel. Por eso el Postgres es parte del deploy, no un extra.
+En local, si `DATABASE_URL` está vacío, la memoria queda en `data/charla.sqlite`.
+
+## Deploy en Netlify
+
+`netlify.toml` fija Node 22, `npm run build` y la carpeta `.next`. Netlify detecta Next.js y aplica el runtime OpenNext (`@netlify/next`) en cada build. Ese runtime publica las route handlers de `app/api` como Netlify Functions: el secreto efímero, la memoria y el resumen de la sesión corren ahí. `OPENAI_API_KEY` no se incluye en el JavaScript del navegador.
+
+1. En Netlify, **Add new site** → **Import an existing project** y elegí el repositorio.
+2. El framework es Next.js. El comando de build y la carpeta de publicación ya están en `netlify.toml`. No hace falta instalar `@netlify/plugin-nextjs`: fijar esa versión deja afuera las actualizaciones del runtime.
+3. En **Environment variables**, cargá las variables de la tabla. Alcance: **Functions** y **Builds** (o All). Guardar una variable no alcanza: hay que volver a desplegar para que las funciones la vean.
+4. Deploy.
+5. Abrí la URL `https://….netlify.app` en la tablet.
+
+Sin `DATABASE_URL`, las funciones no tienen disco durable y la memoria se pierde. Con la URI de Supabase, la memoria queda en Postgres.
 
 ## Tablet en modo kiosco
 
