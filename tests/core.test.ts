@@ -213,7 +213,6 @@ describe("planner, policy and mood", () => {
     const first = planDay({
       today: "2026-10-29",
       recent: [],
-      tastes: "tango",
       sessionCount: 0,
       history: [],
       now: new Date("2026-10-29T14:00:00.000Z"),
@@ -225,7 +224,6 @@ describe("planner, policy and mood", () => {
     const later = planDay({
       today: "2026-10-29",
       recent: [{ module: "charla", localDate: "2026-10-28" }],
-      tastes: "tango y la playa",
       sessionCount: 2,
       history: [],
       now: new Date("2026-10-29T14:00:00.000Z"),
@@ -248,7 +246,6 @@ describe("planner, policy and mood", () => {
         { module: "charla", localDate: "2026-10-29" },
         { module: "mi_historia", localDate: "2026-10-28" },
       ],
-      tastes: "tango",
       sessionCount: 2,
       history: CHECKIN_ITEMS.map((item) => ({ instrument: item.instrument, itemId: item.itemId, createdAt: "2026-10-28T12:00:00.000Z" })),
       now: new Date("2026-10-29T14:00:00.000Z"),
@@ -256,7 +253,8 @@ describe("planner, policy and mood", () => {
       consented: true,
     });
     expect(curious.module).toBe("curiosidad");
-    expect(curious.theme).toContain("tango");
+    expect(curious.theme).toContain("atardecer");
+    expect(curious.theme).not.toContain("tango");
     expect(curious.checkin).toBeNull();
     expect(selectCheckinItem({ sessionCount: 0, history: [], now: new Date() })).toBeNull();
     const recent = selectCheckinItem({
@@ -483,7 +481,8 @@ describe("cost, prompt and notify", () => {
     }));
     const memory = describeMemory(profile, facts);
     expect(memory.split(". ").length).toBeLessThanOrEqual(4);
-    expect(memory).not.toContain("Hecho número 4");
+    expect(memory).toContain("Elena");
+    expect((memory.match(/Hecho número/g) ?? []).length).toBeLessThanOrEqual(1);
     expect(describeMemory({ ...profile, displayName: "", importantPeople: "", tastes: "" }, []).length).toBeGreaterThan(10);
     const assembled = assembleInstructions({
       profile,
@@ -503,8 +502,8 @@ describe("cost, prompt and notify", () => {
       maxFacts: 1,
     });
     expect(assembled.instructions).toContain("Elena");
-    expect(assembled.instructions).toContain("Hecho número 0");
-    expect(assembled.instructions).not.toContain("Hecho número 1");
+    const shownFacts = ["0", "1", "2", "3", "4"].filter((index) => assembled.instructions.includes(`Hecho número ${index}`));
+    expect(shownFacts).toHaveLength(1);
     expect(assembled.instructions).toContain("911");
     expect(assembled.instructions).toContain("Una sola pregunta por turno");
     expect(assembled.instructions.length).toBeLessThanOrEqual(12_000);

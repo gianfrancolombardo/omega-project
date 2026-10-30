@@ -20,6 +20,7 @@ import type {
   TranscriptTurn,
 } from "@/lib/domain";
 import { EMPTY_USAGE } from "@/lib/domain";
+import { planFactWrite } from "@/lib/memory/reconcile";
 import { isClinicalContent, isFactCategory } from "@/lib/profile";
 import type { Db, SqlRow, SqlValue } from "@/lib/db/sql";
 import { normalize } from "@/lib/text";
@@ -34,7 +35,7 @@ export type MemoryStore = {
     content: string;
     sourceSessionId?: string | null;
     source?: FactSource;
-  }): Promise<{ ok: true; fact: Fact; created: boolean } | { ok: false; reason: "clinical" | "invalid" }>;
+  }): Promise<{ ok: true; fact: Fact; created: boolean; updated: boolean } | { ok: false; reason: "clinical" | "invalid" }>;
   listFacts(): Promise<Fact[]>;
   searchFacts(query: string, limit?: number): Promise<Fact[]>;
   forgetFact(query: string): Promise<Fact | null>;
@@ -204,6 +205,7 @@ function mapFact(row: SqlRow): Fact {
     category: isFactCategory(category) ? category : "otro",
     content: text(row, "content"),
     createdAt: text(row, "created_at"),
+    updatedAt: nullable(row, "updated_at"),
     sourceSessionId: nullable(row, "source_session_id"),
     source: source === "setup" || source === "summary" || source === "tool" ? source : "tool",
   };
@@ -358,28 +360,46 @@ export function createMemoryStore(db: Db, options: StoreOptions = {}): MemorySto
       return readProfile();
     },
     async addFact(input) {
-      const content = input.content.trim().slice(0, 500);
+      const content = input.content.trim().replace(/\s+/g, " ").slice(0, 500);
       if (content.length < 2 || !isFactCategory(input.category)) return { ok: false, reason: "invalid" };
       if (isClinicalContent(content)) return { ok: false, reason: "clinical" };
-      const existing = await db.all("SELECT * FROM facts ORDER BY created_at DESC");
-      const duplicate = existing.map(mapFact).find((fact) => normalize(fact.content) === normalize(content));
-      if (duplicate) return { ok: true, fact: duplicate, created: false };
+      const existing = (await db.all("SELECT * FROM facts")).map(mapFact);
+      const plan = planFactWrite(
+        existing.map((fact) => ({ id: fact.id, category: fact.category, content: fact.content })),
+        { category: input.category, content },
+      );
+      const source = input.source ?? "tool";
+      const sourceSessionId = input.sourceSessionId ?? null;
+      const at = now().toISOString();
+      if (plan.type === "keep" || plan.type === "update") {
+        const current = existing.find((fact) => fact.id === plan.id);
+        if (!current) return { ok: false, reason: "invalid" };
+        if (plan.type === "keep") return { ok: true, fact: current, created: false, updated: false };
+        await db.run(
+          "UPDATE facts SET category = ?, content = ?, source = ?, source_session_id = ?, updated_at = ? WHERE id = ?",
+          [plan.category, plan.content, source, sourceSessionId, at, plan.id],
+        );
+        const row = await db.get("SELECT * FROM facts WHERE id = ?", [plan.id]);
+        if (!row) return { ok: false, reason: "invalid" };
+        return { ok: true, fact: mapFact(row), created: false, updated: true };
+      }
       const fact: Fact = {
         id: newId(),
         category: input.category,
         content,
-        createdAt: now().toISOString(),
-        sourceSessionId: input.sourceSessionId ?? null,
-        source: input.source ?? "tool",
+        createdAt: at,
+        updatedAt: at,
+        sourceSessionId,
+        source,
       };
       await db.run(
-        "INSERT INTO facts (id, category, content, created_at, source_session_id, source) VALUES (?, ?, ?, ?, ?, ?)",
-        [fact.id, fact.category, fact.content, fact.createdAt, fact.sourceSessionId, fact.source],
+        "INSERT INTO facts (id, category, content, created_at, updated_at, source_session_id, source) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [fact.id, fact.category, fact.content, fact.createdAt, fact.updatedAt ?? at, fact.sourceSessionId, fact.source],
       );
-      return { ok: true, fact, created: true };
+      return { ok: true, fact, created: true, updated: false };
     },
     async listFacts() {
-      const rows = await db.all("SELECT * FROM facts ORDER BY created_at DESC");
+      const rows = await db.all("SELECT * FROM facts ORDER BY COALESCE(updated_at, created_at) DESC");
       return rows.map(mapFact);
     },
     async searchFacts(query, limit = 5) {

@@ -6,12 +6,16 @@ export const SETUP_PIN_STORAGE_KEY = "charla.setupPin";
 
 export const FACT_CATEGORY_LABELS: Record<FactCategory, string> = {
   gusto: "Gusto",
+  disgusto: "Disgusto",
+  interes: "Interés",
   familia: "Familia",
   lugar: "Lugar",
   epoca: "Época",
+  fecha: "Fecha",
   historia: "Historia",
   opinion: "Opinión",
   rutina: "Rutina",
+  salud: "Salud cotidiana",
   meta: "Meta",
   otro: "Otro",
 };

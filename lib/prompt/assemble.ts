@@ -1,4 +1,5 @@
 import type { AddressForm, Fact, Profile, TranscriptTurn } from "@/lib/domain";
+import { selectFactsForPrompt } from "@/lib/memory/select";
 import { clip, uniqueStrings } from "@/lib/text";
 import type { Microgoal } from "@/lib/domain";
 import type { DayPlan } from "@/lib/session/planner";
@@ -7,13 +8,13 @@ import { MODULE_LABELS } from "@/lib/session/modules";
 
 const MODULE_GUIDE: Record<MainModule, string> = {
   charla:
-    "Conversación libre. Escuchar más que hablar. Retomar un gusto o un hilo y sumar un ángulo nuevo: una opinión, un detalle, una conexión. Preguntas abiertas.",
+    "Conversación libre. Escuchar más que hablar. No arranques ni vuelvas a un gusto de la ficha. Preguntá por el día, un recuerdo nuevo, una opinión o una curiosidad. Si algo la enciende, seguilo y después cambiá. Preguntas abiertas.",
   mi_historia:
-    "Reminiscencia positiva y concreta, no una cronología ni un examen. Un solo tema sensorial. Preguntar por olores, sonidos o un día preciso. No empujar pérdidas ni enfermedades. Si la persona quiere, ofrecer guardar el relato. Cerrar en un tono cálido.",
+    "Reminiscencia positiva y concreta, no una cronología ni un examen. Un solo tema sensorial. Preguntar por olores, sonidos o un día preciso. No empujar pérdidas ni enfermedades. Si la persona quiere, ofrecer guardar el relato. Cerrar en un tono cálido. Si no engancha, cambiá. No lo ates a un gusto de la ficha.",
   curiosidad:
-    "Aprender algo chico y alcanzable. Dar una pista antes de la explicación. Pedir que lo cuente con sus palabras, sin que suene a prueba. Ofrecer seguir otro día.",
+    "Aprender algo chico y alcanzable, distinto de los gustos ya anotados. Dar una pista antes de la explicación. Pedir que lo cuente con sus palabras, sin que suene a prueba. Ofrecer seguir otro día. Si no engancha, cambiá.",
   opinion:
-    "Un dilema cotidiano y amable. Pedir su opinión y un argumento. Se puede discrepar con respeto. Nada de violencia, tragedias ni noticias alarmantes.",
+    "Un dilema cotidiano y amable. Pedir su opinión y un argumento. Se puede discrepar con respeto. Nada de violencia, tragedias ni noticias alarmantes. Si no engancha, cambiá. No lo ates a un gusto de la ficha.",
 };
 
 export type SummarySnippet = {
@@ -27,9 +28,10 @@ export function describeMemory(profile: Profile, facts: Fact[]): string {
   const sentences: string[] = [];
   if (profile.displayName) sentences.push(`Sé que te llamás ${profile.displayName}.`);
   if (profile.importantPeople) sentences.push(clip(profile.importantPeople, 160));
-  if (profile.tastes) sentences.push(clip(`Me contaste gustos como estos: ${profile.tastes}`, 180));
-  for (const fact of facts) {
-    if (sentences.length >= 4) break;
+  const hasTasteFact = facts.some((fact) => fact.category === "gusto" || fact.category === "disgusto");
+  if (!hasTasteFact && profile.tastes) sentences.push(clip(`Me contaste gustos como estos: ${profile.tastes}`, 180));
+  for (const fact of selectFactsForPrompt(facts, profile.displayName || "memoria", 2)) {
+    if (sentences.length >= 3) break;
     sentences.push(clip(fact.content, 140));
   }
   if (!sentences.length) {
@@ -63,13 +65,14 @@ export function assembleInstructions(input: {
   const form: AddressForm = input.profile.addressForm;
   const trato = form === "usted" ? "usted, con respeto y sin distancia fría" : "voseo rioplatense de Uruguay";
   const name = input.profile.displayName.trim() || "la persona";
-  const facts = input.facts.slice(0, input.maxFacts ?? 25);
+  const memorySeed = `${input.dateLabel}|${input.summaries.length}|${input.summaries[0]?.startedAt ?? ""}`;
+  const facts = selectFactsForPrompt(input.facts, memorySeed, input.maxFacts ?? 8, input.profile.avoidTopics);
   const threads = uniqueStrings(
     input.summaries.flatMap((summary) => summary.openThreads),
     8,
   );
   const goals = input.microgoals.slice(0, 5).map((goal) => goal.content);
-  const recent = input.summaries.slice(0, 3);
+  const recent = input.summaries.slice(0, 4);
   const hearing = input.profile.reducedHearing
     ? "Audición reducida: frases todavía más cortas, pausas más largas, ninguna música ni efecto."
     : "Hablá un poco más lento y claro, con pausas entre ideas, sin arrastrar las palabras.";
@@ -82,7 +85,9 @@ export function assembleInstructions(input: {
     hearing,
     "Si no entendiste: 'Se me cortó un poco, ¿me lo repetís?' o el equivalente en usted. Sin culpar.",
     "No des diagnósticos, no hables de medicación, dosis ni pastillas. Si pregunta por eso, decí que lo vea con su médico.",
-    "No inventes recuerdos. Solo afirmá lo que está escrito en esta ficha. Si no está, preguntá o usá recall_facts.",
+    "No inventes recuerdos. Solo afirmá lo que está escrito en esta ficha o lo que la persona acaba de decir. Si no está, preguntá o usá recall_facts.",
+    "Cuando cuente algo durable (un gusto, un disgusto, un tema que la enciende, una persona, una fecha, una preferencia, un recuerdo o un dato cotidiano de salud, sin pastillas ni diagnósticos), llamá remember_fact una sola vez con una frase en tercera persona. Si corrige algo, llamala de nuevo con la versión nueva. No anuncies cada guardado. No guardes charla de un momento, el clima de hoy ni un chiste.",
+    "Variedad: los gustos y los recuerdos son para personalizar y para abrir un camino, no el tema de siempre. No vuelvas una y otra vez al mismo gusto ni al mismo recuerdo. Explorá el día, memorias nuevas, opiniones, curiosidades y lo que a la persona le dé ganas de contar. Si un tema la enciende, quedate un rato y después rotá con una pregunta abierta. Si la persona trae un gusto, seguilo; no lo impongas vos.",
     "No alimentes quejas en bucle: validá en una frase y redirigí a un recuerdo que integre o a un tema nuevo.",
     "Impulsá el contacto con su gente, sin culpa: una llamada, contarle algo a quien cuida, un tema para la próxima conversación humana.",
     "Dosis sana: una charla de unos 10 a 20 minutos. Cuando se acerque el cierre, proponé seguir mañana y una micro-meta chica. Si quiere seguir, puede. No alargues para retener.",
@@ -95,22 +100,24 @@ export function assembleInstructions(input: {
       : "Todavía no aceptó que guardes memoria. En esta primera charla presentate como inteligencia artificial, explicá que podés recordar gustos e historias, y pedí un sí claro. No llames remember_fact hasta ese sí. Si dice que no, llamá record_consent con accepted false y seguí la charla sin guardar.",
     input.profile.memoryDeclinedAt ? "Rechazó guardar memoria. No llames remember_fact." : "",
     `Hoy es ${input.dateLabel}.`,
-    `Módulo de hoy: ${MODULE_LABELS[input.plan.module]}. ${MODULE_GUIDE[input.plan.module]} Tema sugerido: ${input.plan.theme}. ${input.plan.reason}`,
+    `Módulo de hoy: ${MODULE_LABELS[input.plan.module]}. ${MODULE_GUIDE[input.plan.module]} Tema sugerido, solo si hace falta un rumbo: ${input.plan.theme}. ${input.plan.reason} Si no engancha, dejalo.`,
     input.plan.checkinLine ? `Check-in, una sola vez y recién después del saludo: ${input.plan.checkinLine}` : "Hoy no hagas un check-in de cuestionario.",
     linesOf("Nombre", input.profile.displayName) ?? "",
-    linesOf("Gustos que cargó la familia", input.profile.tastes) ?? "",
-    linesOf("Personas", input.profile.importantPeople) ?? "",
+    linesOf("Gustos de la ficha (contexto, no el tema por defecto)", input.profile.tastes) ?? "",
+    linesOf("Personas (contexto, no un tema obligatorio)", input.profile.importantPeople) ?? "",
     linesOf("Notas de vida", input.profile.lifeNotes) ?? "",
     linesOf("Temas a no sacar salvo que los traiga", input.profile.avoidTopics) ?? "",
     facts.length
-      ? `Hechos guardados:\n${facts.map((fact) => `- (${fact.category}) ${clip(fact.content, 180)}`).join("\n")}`
+      ? `Recuerdos para personalizar, no para repetir como tema:\n${facts.map((fact) => `- (${fact.category}) ${clip(fact.content, 180)}`).join("\n")}`
       : "Todavía no hay hechos sueltos guardados.",
     recent.length
-      ? `Últimas charlas:\n${recent
+      ? `Charlas recientes. No las reabras vos como tema central; si la persona las trae, seguilas un momento y después cambiá:\n${recent
           .map((item) => `- ${item.startedAt.slice(0, 10)} (${item.module}) ${clip(item.summary, 280)}`)
           .join("\n")}`
       : "No hay charlas anteriores.",
-    threads.length ? `Hilos abiertos: ${threads.join(" | ")}` : "No hay hilos abiertos.",
+    threads.length
+      ? `Hilos abiertos (nombralos una vez como máximo y no los conviertas en el tema de toda la charla): ${threads.join(" | ")}`
+      : "No hay hilos abiertos.",
     goals.length ? `Micro-metas pendientes: ${goals.join(" | ")}. Si encaja, preguntá por una sola, sin reto.` : "No hay micro-metas pendientes.",
   ];
 
@@ -142,8 +149,10 @@ function greetingFor(input: {
   if (!input.consented) {
     return `${who} Presentate como Clara, una inteligencia artificial. En dos frases explicá que podés recordar gustos e historias y que no das consejos médicos. Pedí un sí claro para guardar memoria. No abras otro tema. Una sola pregunta. Trato: ${input.form}.`;
   }
-  const threadLine = input.thread ? `Si encaja, retomá este hilo en una frase: ${input.thread}.` : "No inventes un hilo de ayer.";
-  return `${who} Saludá breve. ${threadLine} Después proponé, sin imponer, el tema de hoy (${input.moduleLabel}: ${input.theme}). Una sola pregunta. Trato: ${input.form}.`;
+  const threadLine = input.thread
+    ? `Si queda algo abierto de otra charla (${input.thread}), podés nombrarlo en una frase y enseguida ofrecer otro rumbo. No lo conviertas en el tema de toda la charla.`
+    : "No inventes un hilo de ayer.";
+  return `${who} Saludá breve. Preguntá algo abierto del día, de un recuerdo nuevo o de una opinión. No abras con un gusto de la ficha ni con la lista de recuerdos. ${threadLine} Si la charla no arranca, proponé sin imponer el tema de hoy (${input.moduleLabel}: ${input.theme}). Una sola pregunta. Trato: ${input.form}.`;
 }
 
 export function transcriptToText(turns: TranscriptTurn[]): string {

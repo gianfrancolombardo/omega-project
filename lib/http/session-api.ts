@@ -6,6 +6,8 @@ import type { HttpResult } from "@/lib/http/guard";
 import { requirePin } from "@/lib/http/guard";
 import { mintClientSecret } from "@/lib/openai/mint";
 import { shouldAlertFromSummary, summarizeSession } from "@/lib/openai/summarize";
+import { extractFactsFromTranscript } from "@/lib/memory/extract";
+import { mergeIncomingFacts } from "@/lib/memory/reconcile";
 import { assembleInstructions } from "@/lib/prompt/assemble";
 import { planDay } from "@/lib/session/planner";
 import { proactiveDecision } from "@/lib/session/proactive";
@@ -105,7 +107,6 @@ export async function handleCreateSession(deps: AppDeps, headers: Headers, body:
   const plan = planDay({
     today: localDate,
     recent,
-    tastes: `${profile.tastes} ${profile.lifeNotes}`,
     sessionCount: sessions.filter((session) => session.status === "completed").length,
     history: moods.map((signal) => ({
       instrument: signal.instrument,
@@ -121,7 +122,7 @@ export async function handleCreateSession(deps: AppDeps, headers: Headers, body:
     facts,
     summaries: sessions
       .filter((session) => session.summary.trim())
-      .slice(0, 3)
+      .slice(0, 5)
       .map((session) => ({
         startedAt: session.startedAt,
         module: session.module,
@@ -243,7 +244,8 @@ export async function handleEndSession(deps: AppDeps, headers: Headers, body: un
     openThreads = produced.openThreads;
     summarySource = produced.source;
     if (profile.userConsentAt && !profile.memoryDeclinedAt) {
-      for (const fact of produced.facts) {
+      const incoming = mergeIncomingFacts([...extractFactsFromTranscript(turns), ...produced.facts]);
+      for (const fact of incoming) {
         await deps.store.addFact({
           category: fact.category,
           content: fact.content,

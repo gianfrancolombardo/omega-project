@@ -460,14 +460,15 @@ describe("planner and safety phrases", () => {
     const yesterday = "2026-10-28";
     const base = {
       today,
-      tastes: "ajedrez",
       sessionCount: 3,
       history: [] as { instrument: string; itemId: string; createdAt: string }[],
       now: new Date("2026-10-29T14:00:00.000Z"),
       addressForm: "vos" as const,
       consented: true,
     };
-    expect(planDay({ ...base, recent: [], sessionCount: 0 }).theme).toContain("gusto");
+    const openTheme = planDay({ ...base, recent: [], sessionCount: 0 }).theme;
+    expect(openTheme).not.toMatch(/gusto/i);
+    expect(openTheme.length).toBeGreaterThan(12);
     expect(
       planDay({
         ...base,
