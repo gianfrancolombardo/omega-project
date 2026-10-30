@@ -27,6 +27,7 @@ export const SCHEMA_STATEMENTS = [
     category TEXT NOT NULL,
     content TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    updated_at TEXT,
     source_session_id TEXT,
     source TEXT NOT NULL
   )`,
@@ -105,10 +106,23 @@ export const POSTGRES_LOCKDOWN = [
   "ALTER TABLE proactive_days ENABLE ROW LEVEL SECURITY",
 ];
 
+async function ensureFactUpdatedAt(db: Db, dialect: "sqlite" | "postgres"): Promise<void> {
+  if (dialect === "postgres") {
+    await db.exec("ALTER TABLE facts ADD COLUMN IF NOT EXISTS updated_at TEXT");
+    return;
+  }
+  const columns = await db.all("PRAGMA table_info(facts)");
+  const names = new Set(columns.map((row) => String(row.name ?? "")));
+  if (!names.has("updated_at")) {
+    await db.exec("ALTER TABLE facts ADD COLUMN updated_at TEXT");
+  }
+}
+
 export async function migrate(db: Db, nowIso: string, timezone: string, dialect: "sqlite" | "postgres" = "sqlite"): Promise<void> {
   for (const statement of SCHEMA_STATEMENTS) {
     await db.exec(statement);
   }
+  await ensureFactUpdatedAt(db, dialect);
   if (dialect === "postgres") {
     for (const statement of POSTGRES_LOCKDOWN) {
       await db.exec(statement);

@@ -1,16 +1,18 @@
+import { FACT_CATEGORIES } from "@/lib/domain";
+
 export const REALTIME_TOOLS = [
   {
     type: "function",
     name: "remember_fact",
     description:
-      "Guardá un hecho durable de la vida de la persona: gusto, familia, lugar, época, historia, opinión, rutina o meta. No guardes medicación, dosis ni diagnósticos. No guardes lo que pidió olvidar.",
+      "Guardá o actualizá un hecho durable: gusto, disgusto, interés, familia, lugar, fecha, historia, opinión, rutina, salud cotidiana o meta. Si ya había uno parecido, esta llamada lo reemplaza por la versión nueva. No guardes medicación, dosis ni diagnósticos. No guardes charla de un momento ni lo que pidió olvidar.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         category: {
           type: "string",
-          enum: ["gusto", "familia", "lugar", "epoca", "historia", "opinion", "rutina", "meta", "otro"],
+          enum: [...FACT_CATEGORIES],
         },
         content: { type: "string", description: "Una frase, en tercera persona." },
       },
@@ -43,7 +45,8 @@ export const REALTIME_TOOLS = [
   {
     type: "function",
     name: "what_do_you_know",
-    description: "La persona preguntó qué sabés de ella. Usá el texto devuelto, en no más de cuatro frases, y ofrecé corregir.",
+    description:
+      "La persona preguntó qué sabés de ella. Usá el texto devuelto, en no más de cuatro frases, y ofrecé corregir. No uses esa lista para elegir el tema siguiente.",
     parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
   },
   {

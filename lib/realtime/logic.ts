@@ -7,6 +7,7 @@ import {
   stillThereLine,
 } from "@/lib/copy";
 import { doseNudge, evaluateSilence } from "@/lib/session/policy";
+import { extractFactsFromTranscript } from "@/lib/memory/extract";
 import { assessUtterance, safetyScript, type RiskKind } from "@/lib/safety/assess";
 import {
   cancelResponseEvent,
@@ -43,6 +44,7 @@ export type LiveEffect =
   | { type: "send"; event: Record<string, unknown> }
   | { type: "tool"; name: string; callId: string; arguments: string }
   | { type: "safety"; text: string; level: 0 | 2 | 3; interrupt: boolean }
+  | { type: "memory"; text: string }
   | { type: "end"; outcome: SessionStatus };
 
 export type LiveContext = {
@@ -181,7 +183,16 @@ function applyServer(state: LiveState, event: Record<string, unknown>, now: numb
     const text = textOf(event, "transcript");
     let next = pushTurn({ ...state, userSpoke: true, lastActivityAt: now }, "user", text, now);
     const assessment = assessUtterance(text);
-    if (assessment.level === 0) return { state: next, effects: [] };
+    if (assessment.level === 0) {
+      const trimmed = text.trim();
+      const memories = trimmed
+        ? extractFactsFromTranscript([{ role: "user", text: trimmed, at: new Date(now).toISOString() }])
+        : [];
+      return {
+        state: next,
+        effects: memories.length ? [{ type: "memory", text: trimmed.slice(0, 2000) }] : [],
+      };
+    }
     const effects: LiveEffect[] = [
       { type: "safety", text, level: assessment.level, interrupt: assessment.level === 3 && !state.emergency },
     ];

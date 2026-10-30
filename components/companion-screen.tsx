@@ -93,11 +93,16 @@ export function CompanionScreen(props: { mode: "live" | "preview"; preview?: str
           <div className="charla-date">{shown.dateLabel}</div>
         </div>
         <div className="charla-orb" aria-hidden="true">
-          <p className="charla-status">{shown.phase === "problem" ? "Atención" : shown.status}</p>
+          <span className="charla-halo" />
+          <div className="charla-orb-face">
+            <p key={`${shown.phase}:${shown.status}`} className="charla-status">
+              {shown.phase === "problem" ? "Atención" : shown.status}
+            </p>
+          </div>
         </div>
         {shown.phase === "problem" ? <p className="charla-problem">{shown.status}</p> : null}
         {shown.subtitle ? (
-          <p className="charla-sub" aria-live="polite">
+          <p key={shown.subtitle} className="charla-sub" aria-live="polite">
             {shown.subtitle}
           </p>
         ) : (

@@ -3,6 +3,7 @@ import type { AppDeps } from "@/lib/http/deps";
 import { recordSafetyAlert } from "@/lib/http/alerts";
 import type { HttpResult } from "@/lib/http/guard";
 import { requirePin } from "@/lib/http/guard";
+import { extractFactsFromTranscript } from "@/lib/memory/extract";
 import { parseFactInput } from "@/lib/profile";
 import { describeMemory } from "@/lib/prompt/assemble";
 import { assessUtterance, safetyScript } from "@/lib/safety/assess";
@@ -63,7 +64,27 @@ export async function handleTool(deps: AppDeps, headers: Headers, body: unknown)
       sourceSessionId: session.id,
     });
     if (!saved.ok) return toolResult("No guardo medicación ni diagnósticos.");
+    if (saved.updated) return toolResult(`Actualicé: ${saved.fact.content}`);
     return toolResult(saved.created ? `Guardado: ${saved.fact.content}` : `Eso ya estaba: ${saved.fact.content}`);
+  }
+
+  if (name === "capture_memory") {
+    if (!profile.userConsentAt || profile.memoryDeclinedAt) {
+      return toolResult("No hay permiso para guardar.");
+    }
+    const spoken = text(args.text, 2000);
+    const incoming = extractFactsFromTranscript([{ role: "user", text: spoken, at: now.toISOString() }]);
+    const notes: string[] = [];
+    for (const fact of incoming) {
+      const saved = await deps.store.addFact({
+        category: fact.category,
+        content: fact.content,
+        source: "tool",
+        sourceSessionId: session.id,
+      });
+      if (saved.ok && (saved.created || saved.updated)) notes.push(saved.fact.content);
+    }
+    return toolResult(notes.length ? `Anoté: ${notes.join(" | ")}` : "Nada nuevo para guardar.");
   }
 
   if (name === "recall_facts") {

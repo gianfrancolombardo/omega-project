@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,8 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DEVICE_PIN_STORAGE_KEY, FACT_CATEGORY_OPTIONS, SETUP_PIN_STORAGE_KEY } from "@/lib/copy";
-import type { AlertRecord, Fact, FactCategory, Microgoal, Profile } from "@/lib/domain";
+import type { AlertRecord, Fact, FactCategory, FactSource, Microgoal, Profile } from "@/lib/domain";
 import { metricsToCsv, type SessionMetrics } from "@/lib/metrics/csv";
+import { activateTabletFeedback, saveProfileFeedback, type ActionFeedback } from "@/lib/setup/feedback";
 
 type Snapshot = {
   profile: Profile;
@@ -28,6 +29,40 @@ function messageOf(body: unknown, fallback: string): string {
   return fallback;
 }
 
+function factOrigin(source: FactSource): string {
+  return source === "setup" ? "Cargado en la ficha" : "Guardado de una charla";
+}
+
+function factWhen(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("es-UY", { day: "numeric", month: "long", year: "numeric" }).format(date);
+}
+
+function StatusNote(props: { feedback: ActionFeedback | null; id: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (!props.feedback) return;
+    ref.current?.focus();
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    ref.current?.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+  }, [props.feedback]);
+  if (!props.feedback) return null;
+  return (
+    <p
+      ref={ref}
+      id={props.id}
+      tabIndex={-1}
+      role={props.feedback.tone === "error" ? "alert" : "status"}
+      aria-live={props.feedback.tone === "error" ? "assertive" : "polite"}
+      data-tone={props.feedback.tone}
+      className="charla-feedback"
+    >
+      {props.feedback.message}
+    </p>
+  );
+}
+
 export function SetupPanel() {
   const [pin, setPin] = useState("");
   const [unlocked, setUnlocked] = useState(false);
@@ -35,6 +70,10 @@ export function SetupPanel() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [activating, setActivating] = useState(false);
+  const [profileFeedback, setProfileFeedback] = useState<ActionFeedback | null>(null);
+  const [tabletFeedback, setTabletFeedback] = useState<ActionFeedback | null>(null);
   const [category, setCategory] = useState<FactCategory>("gusto");
   const [factText, setFactText] = useState("");
   const [wipe, setWipe] = useState("");
@@ -79,37 +118,49 @@ export function SetupPanel() {
 
   async function saveProfile(event: FormEvent): Promise<void> {
     event.preventDefault();
-    if (!snapshot) return;
+    if (!snapshot || saving) return;
     setNotice("");
     setError("");
+    setProfileFeedback(null);
+    setSaving(true);
     const { profile } = snapshot;
-    const response = await fetch("/api/setup", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", "x-setup-pin": pin },
-      body: JSON.stringify({
-        displayName: profile.displayName,
-        addressForm: profile.addressForm,
-        timezone: profile.timezone,
-        dailyTime: profile.dailyTime,
-        proactiveEnabled: profile.proactiveEnabled,
-        tastes: profile.tastes,
-        lifeNotes: profile.lifeNotes,
-        avoidTopics: profile.avoidTopics,
-        importantPeople: profile.importantPeople,
-        emergencyName: profile.emergencyName,
-        emergencyPhone: profile.emergencyPhone,
-        emergencyRelation: profile.emergencyRelation,
-        reducedHearing: profile.reducedHearing,
-        subtitles: profile.subtitles,
-      }),
-    });
-    const body: unknown = await response.json();
-    if (!response.ok) {
-      setError(messageOf(body, "No pude guardar la ficha."));
-      return;
+    try {
+      const response = await fetch("/api/setup", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "x-setup-pin": pin },
+        body: JSON.stringify({
+          displayName: profile.displayName,
+          addressForm: profile.addressForm,
+          timezone: profile.timezone,
+          dailyTime: profile.dailyTime,
+          proactiveEnabled: profile.proactiveEnabled,
+          tastes: profile.tastes,
+          lifeNotes: profile.lifeNotes,
+          avoidTopics: profile.avoidTopics,
+          importantPeople: profile.importantPeople,
+          emergencyName: profile.emergencyName,
+          emergencyPhone: profile.emergencyPhone,
+          emergencyRelation: profile.emergencyRelation,
+          reducedHearing: profile.reducedHearing,
+          subtitles: profile.subtitles,
+        }),
+      });
+      const body: unknown = await response.json().catch(() => null);
+      const feedback = saveProfileFeedback({
+        networkError: false,
+        status: response.status,
+        serverMessage: messageOf(body, "") || null,
+      });
+      if (feedback.tone === "success" && body && typeof body === "object" && "profile" in body) {
+        const next = (body as { profile?: Profile }).profile;
+        if (next) setSnapshot((current) => (current ? { ...current, profile: next } : current));
+      }
+      setProfileFeedback(feedback);
+    } catch {
+      setProfileFeedback(saveProfileFeedback({ networkError: true, status: null, serverMessage: null }));
+    } finally {
+      setSaving(false);
     }
-    setNotice("Guardé la ficha.");
-    await load(pin);
   }
 
   function patchProfile(patch: Partial<Profile>): void {
@@ -178,9 +229,42 @@ export function SetupPanel() {
     URL.revokeObjectURL(url);
   }
 
-  function activateTablet(): void {
-    window.localStorage.setItem(DEVICE_PIN_STORAGE_KEY, pin);
-    setNotice("Listo. Esta tablet ya puede charlar. Volvé a la pantalla grande.");
+  async function activateTablet(): Promise<void> {
+    if (activating) return;
+    setNotice("");
+    setError("");
+    setTabletFeedback(null);
+    setActivating(true);
+    try {
+      const response = await fetch("/api/setup", { headers: { "x-setup-pin": pin } });
+      const body: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        setTabletFeedback(
+          activateTabletFeedback({
+            networkError: false,
+            status: response.status,
+            serverMessage: messageOf(body, "") || null,
+            storageError: false,
+          }),
+        );
+        return;
+      }
+      try {
+        window.localStorage.setItem(DEVICE_PIN_STORAGE_KEY, pin);
+      } catch {
+        setTabletFeedback(
+          activateTabletFeedback({ networkError: false, status: 200, serverMessage: null, storageError: true }),
+        );
+        return;
+      }
+      setTabletFeedback(
+        activateTabletFeedback({ networkError: false, status: 200, serverMessage: null, storageError: false }),
+      );
+    } catch {
+      setTabletFeedback(activateTabletFeedback({ networkError: true, status: null, serverMessage: null, storageError: false }));
+    } finally {
+      setActivating(false);
+    }
   }
 
   if (!unlocked || !snapshot) {
@@ -314,7 +398,16 @@ export function SetupPanel() {
             </CardContent>
           </Card>
 
-          <Button type="submit" className="h-14 text-lg">Guardar ficha</Button>
+          <Button
+            type="submit"
+            className="h-14 text-lg disabled:opacity-90"
+            disabled={saving}
+            aria-busy={saving}
+            aria-describedby={profileFeedback ? "profile-feedback" : undefined}
+          >
+            {saving ? "Guardando la ficha…" : "Guardar ficha"}
+          </Button>
+          <StatusNote id="profile-feedback" feedback={profileFeedback} />
         </form>
 
         <Card>
@@ -322,18 +415,35 @@ export function SetupPanel() {
             <CardTitle className="text-2xl">Memoria</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
+            <p className="text-lg">
+              Clara anota gustos, personas, fechas y datos de la vida cotidiana que aparecen en las charlas. No guarda pastillas ni diagnósticos. Si algo está mal, borralo.
+            </p>
             {snapshot.facts.length === 0 ? <p className="text-lg">Todavía no hay recuerdos guardados.</p> : null}
             <ul className="flex flex-col gap-3">
-              {snapshot.facts.map((fact) => (
-                <li key={fact.id} className="flex items-start justify-between gap-3 text-lg">
-                  <span>
-                    <strong>{FACT_CATEGORY_OPTIONS.find((item) => item.value === fact.category)?.label ?? fact.category}.</strong> {fact.content}
-                  </span>
-                  <Button type="button" variant="outline" className="h-12 text-base" onClick={() => void deleteFact(fact.id)}>
-                    Borrar
-                  </Button>
-                </li>
-              ))}
+              {snapshot.facts.map((fact) => {
+                const label = FACT_CATEGORY_OPTIONS.find((item) => item.value === fact.category)?.label ?? fact.category;
+                const when = factWhen(fact.updatedAt || fact.createdAt);
+                return (
+                  <li key={fact.id} className="flex items-start justify-between gap-3 text-lg">
+                    <span>
+                      <strong>{label}.</strong> {fact.content}
+                      <span className="mt-1 block text-base text-[#3f3428]">
+                        {factOrigin(fact.source)}
+                        {when ? ` · ${when}` : ""}
+                      </span>
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-12 text-base"
+                      aria-label={`Borrar recuerdo: ${fact.content}`}
+                      onClick={() => void deleteFact(fact.id)}
+                    >
+                      Borrar
+                    </Button>
+                  </li>
+                );
+              })}
             </ul>
             <form onSubmit={(event) => void addFact(event)} className="flex flex-col gap-3">
               <Label htmlFor="category" className="text-lg">Nuevo recuerdo</Label>
@@ -405,9 +515,17 @@ export function SetupPanel() {
           </CardContent>
         </Card>
 
-        <Button type="button" className="h-16 text-xl" onClick={activateTablet}>
-          Activar esta tablet
+        <Button
+          type="button"
+          className="h-16 text-xl disabled:opacity-90"
+          onClick={() => void activateTablet()}
+          disabled={activating}
+          aria-busy={activating}
+          aria-describedby={tabletFeedback ? "tablet-feedback" : undefined}
+        >
+          {activating ? "Activando esta tablet…" : "Activar esta tablet"}
         </Button>
+        <StatusNote id="tablet-feedback" feedback={tabletFeedback} />
       </div>
     </main>
   );

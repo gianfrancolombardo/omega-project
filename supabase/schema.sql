@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS facts (
   category TEXT NOT NULL,
   content TEXT NOT NULL,
   created_at TEXT NOT NULL,
+  updated_at TEXT,
   source_session_id TEXT,
   source TEXT NOT NULL
 );

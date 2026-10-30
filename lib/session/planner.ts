@@ -12,11 +12,13 @@ const HISTORY_THEMES = [
   "algo que supo hacer con las manos",
 ];
 
-const CURIOSITY = [
-  { match: /tango|gardel|troilo|murga/, angle: "un detalle de cómo se armaba una orquesta de tango, contado en dos pasos, y pedirle que lo explique con sus palabras" },
-  { match: /cocina|torta|comida/, angle: "por qué una masa frita queda crocante, con una pista antes de la explicación" },
-  { match: /playa|ramirez|mar|rio/, angle: "por qué el Río de la Plata se ve marrón, con una pista y una pregunta para que lo cuente con sus palabras" },
-  { match: /futbol|fútbol|mecanica|motor/, angle: "cómo arranca un motor en frío, en dos ideas, y que lo explique como si se lo contara a un nieto" },
+const CHARLA_THEMES = [
+  "cómo viene el día y qué le quedó dando vueltas",
+  "un recuerdo cotidiano que todavía no haya contado",
+  "una opinión sobre algo cotidiano y amable",
+  "algo del mundo que le dé curiosidad, contado en simple",
+  "una persona de su vida en un momento bueno, solo si ella quiere",
+  "qué haría con una tarde libre",
 ];
 
 const CURIOSITY_FALLBACK = [
@@ -73,17 +75,17 @@ function historyTheme(today: string, recent: RecentModule[]): string {
   return HISTORY_THEMES[shifted] ?? HISTORY_THEMES[0];
 }
 
-function curiosityTheme(today: string, tastes: string): string {
-  const normalized = tastes.toLowerCase();
-  const matched = CURIOSITY.find((item) => item.match.test(normalized));
-  if (matched) return matched.angle;
+function charlaTheme(today: string): string {
+  return CHARLA_THEMES[dayNumber(today) % CHARLA_THEMES.length] ?? CHARLA_THEMES[0];
+}
+
+function curiosityTheme(today: string): string {
   return CURIOSITY_FALLBACK[dayNumber(today) % CURIOSITY_FALLBACK.length] ?? CURIOSITY_FALLBACK[0];
 }
 
 export function planDay(input: {
   today: string;
   recent: RecentModule[];
-  tastes: string;
   sessionCount: number;
   history: CheckinHistory[];
   now: Date;
@@ -109,10 +111,10 @@ export function planDay(input: {
     chosen.module === "mi_historia"
       ? historyTheme(input.today, input.recent)
       : chosen.module === "curiosidad"
-        ? curiosityTheme(input.today, input.tastes)
+        ? curiosityTheme(input.today)
         : chosen.module === "opinion"
           ? OPINIONS[dayNumber(input.today) % OPINIONS.length] ?? OPINIONS[0]
-          : "retomar un gusto o un hilo abierto y sumarle un ángulo nuevo";
+          : charlaTheme(input.today);
   return {
     module: chosen.module,
     reason: chosen.reason,

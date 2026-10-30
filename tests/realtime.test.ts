@@ -28,6 +28,9 @@ describe("realtime reducer", () => {
     const ordinary = at(state, "conversation.item.input_audio_transcription.completed", { transcript: "Me muero de risa" }, 400);
     expect(ordinary.effects).toEqual([]);
     expect(ordinary.state.turns).toHaveLength(1);
+    const liked = at(state, "conversation.item.input_audio_transcription.completed", { transcript: "Me gusta la pizza de muzza" }, 500);
+    expect(liked.effects).toEqual([{ type: "memory", text: "Me gusta la pizza de muzza" }]);
+    expect(heard.effects.some((effect) => effect.type === "memory")).toBe(false);
   });
 
   it("closes on silence, dose and interrupt", () => {

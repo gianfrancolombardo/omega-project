@@ -2,23 +2,31 @@ export type AddressForm = "vos" | "usted";
 
 export type FactCategory =
   | "gusto"
+  | "disgusto"
+  | "interes"
   | "familia"
   | "lugar"
   | "epoca"
+  | "fecha"
   | "historia"
   | "opinion"
   | "rutina"
+  | "salud"
   | "meta"
   | "otro";
 
 export const FACT_CATEGORIES: FactCategory[] = [
   "gusto",
+  "disgusto",
+  "interes",
   "familia",
   "lugar",
   "epoca",
+  "fecha",
   "historia",
   "opinion",
   "rutina",
+  "salud",
   "meta",
   "otro",
 ];
@@ -30,6 +38,7 @@ export type Fact = {
   category: FactCategory;
   content: string;
   createdAt: string;
+  updatedAt?: string | null;
   sourceSessionId: string | null;
   source: FactSource;
 };

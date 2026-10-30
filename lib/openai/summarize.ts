@@ -24,9 +24,10 @@ const SUMMARY_SYSTEM = `Resumís una charla de voz en español rioplatense para 
 Devolvé solo JSON:
 {"summary":"string","open_threads":["string"],"facts":[{"category":"gusto","content":"string"}],"concern":null}
 summary: dos a cuatro frases, sin inventar nada que no se haya dicho.
-open_threads: hasta tres temas para retomar.
-facts: solo lo que la persona afirmó de su propia vida. Nada de medicación, dosis ni diagnósticos. Si no hay, [].
-category es gusto, familia, lugar, epoca, historia, opinion, rutina, meta u otro.
+open_threads: hasta tres temas para retomar otro día. No los uses para repetir un gusto.
+facts: hasta seis datos durables que la persona afirmó de su vida. Una frase en tercera persona cada uno.
+Incluí gustos nuevos, disgustos, temas que la entusiasmaron, familia, personas, lugares, fechas, recuerdos, opiniones estables, rutinas, preferencias y salud cotidiana (movilidad, audición, cansancio). Nada de medicación, dosis, pastillas ni diagnósticos. Nada de charla pasajera ni del clima de hoy. Si corrige un dato, devolvé la versión nueva y completa. Si no hay, [].
+category es gusto, disgusto, interes, familia, lugar, epoca, fecha, historia, opinion, rutina, salud, meta u otro.
 concern es null, o {"level":2,"reason":"...","excerpt":"..."} solo si habló de emergencia, de hacerse daño o de un malestar que lleva días. excerpt es una cita breve.`;
 
 export function extractResponseText(payload: unknown): string {

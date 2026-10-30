@@ -176,6 +176,7 @@ export function attachCharlaSession(
     void meter?.close();
     meter = null;
     queue.length = 0;
+    root.style.removeProperty("--listen-level");
   }
 
   function finish(outcome: SessionStatus, message?: string): void {
@@ -225,6 +226,15 @@ export function attachCharlaSession(
         headers: headers(true),
         body: JSON.stringify({ sessionToken: token, text: effect.text }),
       });
+      return;
+    }
+    if (effect.type === "memory") {
+      void fetch("/api/tools", {
+        method: "POST",
+        keepalive: true,
+        headers: headers(true),
+        body: JSON.stringify({ sessionToken: token, name: "capture_memory", arguments: { text: effect.text } }),
+      }).catch(() => undefined);
     }
   }
 
@@ -259,13 +269,20 @@ export function attachCharlaSession(
   }
 
   function watchLevel(media: MediaStream): void {
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) {
+      root.style.setProperty("--listen-level", "1");
+      return;
+    }
     const context = new AudioContext();
     meter = context;
     const source = context.createMediaStreamSource(media);
     const analyser = context.createAnalyser();
     analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.85;
     source.connect(analyser);
     const samples = new Uint8Array(analyser.fftSize);
+    let shown = 1;
     const loop = () => {
       analyser.getByteTimeDomainData(samples);
       let energy = 0;
@@ -273,8 +290,9 @@ export function attachCharlaSession(
         const centered = (sample - 128) / 128;
         energy += centered * centered;
       }
-      const level = Math.min(1.08, 1 + Math.sqrt(energy / samples.length) * 0.45);
-      document.documentElement.style.setProperty("--listen-level", level.toFixed(3));
+      const target = Math.min(1.06, 1 + Math.sqrt(energy / samples.length) * 0.32);
+      shown += (target - shown) * 0.12;
+      root.style.setProperty("--listen-level", shown.toFixed(3));
       frame = window.requestAnimationFrame(loop);
     };
     loop();
