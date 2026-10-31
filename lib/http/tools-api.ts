@@ -1,14 +1,16 @@
 import type { AlertKind, MoodInstrument, SessionStatus } from "@/lib/domain";
 import type { AppDeps } from "@/lib/http/deps";
+import { awaitDefer } from "@/lib/http/defer";
 import { recordSafetyAlert } from "@/lib/http/alerts";
 import type { HttpResult } from "@/lib/http/guard";
 import { requirePin } from "@/lib/http/guard";
 import { extractFactsFromTranscript } from "@/lib/memory/extract";
 import { memoryIsOpen, parseFactInput } from "@/lib/profile";
 import { describeMemory } from "@/lib/prompt/assemble";
-import { assessUtterance, safetyScript } from "@/lib/safety/assess";
+import { AFTERCARE, assessUtterance, safetyScript } from "@/lib/safety/assess";
 import { sustainedLowMood } from "@/lib/safety/phq";
 import { localDateInZone } from "@/lib/time";
+import { normalize } from "@/lib/text";
 
 const MOODS: MoodInstrument[] = ["ucla3", "who5", "phq2", "daily"];
 
@@ -95,10 +97,16 @@ export async function handleTool(deps: AppDeps, headers: Headers, body: unknown)
   }
 
   if (name === "forget_fact") {
-    const forgotten = await deps.store.forgetFact(text(args.query, 200) || "ultimo");
+    const query = text(args.query, 200);
+    const normalized = normalize(query);
+    if (!normalized || /^(eso|esto|el ultimo|lo ultimo|la ultima|ultimo|ultima)$/.test(normalized)) {
+      return toolResult("No borres nada todavía. Preguntá «¿lo de …?» con un dato reciente y, si confirma, llamá forget_fact con ese dato.");
+    }
+    const forgotten = await deps.store.forgetFact(query);
     if (!forgotten) {
       return toolResult("No encontré ese dato suelto. No le pidas que lo administre ni hables de una memoria. Seguí la charla.");
     }
+    await deps.store.addAvoidTopic(forgotten.content);
     return toolResult("Listo. No digas que borraste nada ni que hay una memoria. Seguí la charla.");
   }
 
@@ -127,12 +135,20 @@ export async function handleTool(deps: AppDeps, headers: Headers, body: unknown)
         sessionId: session.id,
         level: 2,
         kind: "distress",
-        reason: "Dos señales PHQ-2 altas en días distintos. No es un diagnóstico.",
+        reason: "Dos mediciones PHQ-2 de 3 o más en 21 días. No es un diagnóstico.",
         excerpt: rawAnswer,
         windowMs: 7 * 24 * 60 * 60 * 1000,
       });
     }
-    return toolResult("Señal guardada. No es un diagnóstico. Seguí la charla con naturalidad, una sola pregunta.");
+    const low =
+      (instrument === "phq2" && (score ?? 0) >= 2) ||
+      (instrument === "ucla3" && score === 3) ||
+      (instrument === "who5" && score != null && score <= 1);
+    return toolResult(
+      low
+        ? "Señal guardada. No cambies de tema todavía: reflejá en una frase lo que dijo, preguntá qué le haría bien hoy y, si encaja, proponé contárselo a alguien de su gente o a su médico. Una sola pregunta."
+        : "Señal guardada. Seguí la charla con naturalidad.",
+    );
   }
 
   if (name === "save_microgoal") {
@@ -154,12 +170,23 @@ export async function handleTool(deps: AppDeps, headers: Headers, body: unknown)
     const scan = assessUtterance(`${excerpt} ${reason}`);
     const level: 2 | 3 = args.level === 3 || scan.level === 3 ? 3 : 2;
     const kind: AlertKind = scan.kind === "none" ? "concern" : scan.kind;
-    const saved = await recordSafetyAlert(deps, { sessionId: session.id, level, kind, reason, excerpt });
+    const alreadyScripted = record?.emergency === true;
+    if (alreadyScripted) {
+      void awaitDefer(deps.defer, async () => {
+        await recordSafetyAlert(deps, { sessionId: session.id, level, kind, reason, excerpt });
+      });
+      return toolResult(AFTERCARE);
+    }
     const script =
       level === 3
         ? safetyScript(kind === "suicide" ? "suicide" : "emergency", profile.addressForm)
         : safetyScript("distress", profile.addressForm);
-    const note = saved ? "Dejé un aviso." : "El aviso ya estaba anotado.";
+    const alerts = await deps.store.listAlerts(10);
+    const recent = alerts.some((item) => item.kind === kind && Date.parse(item.createdAt) >= now.getTime() - 10 * 60 * 1000);
+    void awaitDefer(deps.defer, async () => {
+      await recordSafetyAlert(deps, { sessionId: session.id, level, kind, reason, excerpt });
+    });
+    const note = recent ? "El aviso ya estaba anotado." : "Dejé un aviso.";
     return toolResult(`${note} Decí ahora, sin otra pregunta: ${script}`);
   }
 

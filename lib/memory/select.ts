@@ -10,6 +10,12 @@ function hashString(value: string): number {
   return hash >>> 0;
 }
 
+export function mentionsAvoidedTopic(content: string, avoid: string): boolean {
+  const avoidTokens = new Set(factTokens(avoid));
+  if (!avoidTokens.size) return false;
+  return factTokens(content).some((token) => avoidTokens.has(token));
+}
+
 export function selectFactsForPrompt(facts: Fact[], seed: string, limit: number, avoid = ""): Fact[] {
   if (limit <= 0) return [];
   const avoidTokens = new Set(factTokens(avoid));

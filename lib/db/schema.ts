@@ -52,7 +52,9 @@ export const SCHEMA_STATEMENTS = [
     cost_approximate INTEGER NOT NULL,
     model TEXT NOT NULL,
     voice TEXT NOT NULL,
-    summary_source TEXT
+    summary_source TEXT,
+    opener_kind TEXT,
+    summary_meta_json TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS mood_signals (
     id TEXT PRIMARY KEY,
@@ -80,7 +82,8 @@ export const SCHEMA_STATEMENTS = [
     content TEXT NOT NULL,
     status TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    session_id TEXT
+    session_id TEXT,
+    followups INTEGER
   )`,
   `CREATE TABLE IF NOT EXISTS proactive_days (
     local_date TEXT PRIMARY KEY,
@@ -106,15 +109,21 @@ export const POSTGRES_LOCKDOWN = [
   "ALTER TABLE proactive_days ENABLE ROW LEVEL SECURITY",
 ];
 
-async function ensureFactUpdatedAt(db: Db, dialect: "sqlite" | "postgres"): Promise<void> {
+async function ensureColumn(
+  db: Db,
+  dialect: "sqlite" | "postgres",
+  table: string,
+  column: string,
+  definition: string,
+): Promise<void> {
   if (dialect === "postgres") {
-    await db.exec("ALTER TABLE facts ADD COLUMN IF NOT EXISTS updated_at TEXT");
+    await db.exec(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${definition}`);
     return;
   }
-  const columns = await db.all("PRAGMA table_info(facts)");
+  const columns = await db.all(`PRAGMA table_info(${table})`);
   const names = new Set(columns.map((row) => String(row.name ?? "")));
-  if (!names.has("updated_at")) {
-    await db.exec("ALTER TABLE facts ADD COLUMN updated_at TEXT");
+  if (!names.has(column)) {
+    await db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 }
 
@@ -122,7 +131,10 @@ export async function migrate(db: Db, nowIso: string, timezone: string, dialect:
   for (const statement of SCHEMA_STATEMENTS) {
     await db.exec(statement);
   }
-  await ensureFactUpdatedAt(db, dialect);
+  await ensureColumn(db, dialect, "facts", "updated_at", "TEXT");
+  await ensureColumn(db, dialect, "sessions", "opener_kind", "TEXT");
+  await ensureColumn(db, dialect, "sessions", "summary_meta_json", "TEXT");
+  await ensureColumn(db, dialect, "microgoals", "followups", "INTEGER");
   if (dialect === "postgres") {
     for (const statement of POSTGRES_LOCKDOWN) {
       await db.exec(statement);

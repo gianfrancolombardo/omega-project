@@ -13,6 +13,7 @@ export type MintInput = {
   transcriptionModel: string;
   noiseReduction: "near_field" | "far_field";
   instructions: string;
+  transcriptionPrompt?: string;
 };
 
 export type ClientSecretRequest = {
@@ -47,7 +48,11 @@ export function buildClientSecretRequest(input: MintInput & { apiKey: string }):
         audio: {
           input: {
             noise_reduction: { type: input.noiseReduction },
-            transcription: { model: input.transcriptionModel, language: "es" },
+            transcription: {
+              model: input.transcriptionModel,
+              language: "es",
+              ...(input.transcriptionPrompt ? { prompt: input.transcriptionPrompt } : {}),
+            },
             turn_detection: {
               type: "semantic_vad",
               eagerness: "low",

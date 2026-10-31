@@ -1,5 +1,6 @@
 import type { AddressForm } from "@/lib/domain";
 import { FACT_CATEGORIES, type FactCategory } from "@/lib/domain";
+import { dayPartFromHour } from "@/lib/time";
 
 export const DEVICE_PIN_STORAGE_KEY = "charla.devicePin";
 export const SETUP_PIN_STORAGE_KEY = "charla.setupPin";
@@ -33,12 +34,13 @@ export function listeningLabel(form: AddressForm): string {
   return form === "usted" ? "Lo escucho…" : "Te escucho…";
 }
 
-export function inviteLabel(form: AddressForm, name: string): string {
+export function inviteLabel(form: AddressForm, name: string, hour = 11): string {
   const who = name.trim();
-  if (form === "usted") {
-    return who ? `${who}, buen día. ¿Charlamos un rato?` : "Buen día. ¿Charlamos un rato?";
-  }
-  return who ? `${who}, buen día. ¿Charlamos un rato?` : "Buen día. ¿Charlamos un rato?";
+  const part = dayPartFromHour(hour);
+  const hello = part === "tarde" ? "buenas tardes" : part === "noche" ? "buenas noches" : "buen día";
+  const ask = form === "usted" ? "¿Tiene un rato para charlar?" : "¿Tenés un rato para charlar?";
+  const lead = hello.charAt(0).toUpperCase() + hello.slice(1);
+  return who ? `${who}, ${hello}. ${ask}` : `${lead}. ${ask}`;
 }
 
 export function accidentalLine(form: AddressForm): string {

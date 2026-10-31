@@ -115,3 +115,16 @@ export function formatLongDate(date: Date, timeZone: string): string {
   }).format(date);
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
+
+export type DayPart = "mañana" | "tarde" | "noche";
+
+export function dayPartFromHour(hour: number): DayPart {
+  if (hour < 12) return "mañana";
+  if (hour < 19) return "tarde";
+  return "noche";
+}
+
+export function formatDayContext(date: Date, timeZone: string): string {
+  const hour = zonedParts(date, timeZone).hour;
+  return `${formatLongDate(date, timeZone)}, ${formatClock(date, timeZone)} (${dayPartFromHour(hour)})`;
+}

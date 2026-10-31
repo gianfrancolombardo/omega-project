@@ -2,6 +2,7 @@ import { allowSessionMint, assessPinAttempt, type PinLock } from "@/lib/auth/pin
 import { getStore } from "@/lib/db/index";
 import type { MemoryStore } from "@/lib/db/memory-store";
 import { parseEnv, type AppConfig } from "@/lib/env";
+import { scheduleAfterResponse, type DeferFn } from "@/lib/http/defer";
 
 export type PinCheck =
   | { ok: true }
@@ -14,6 +15,7 @@ export type AppDeps = {
   fetchImpl: typeof fetch;
   authorize: (provided: string | null) => PinCheck;
   takeMint: () => { ok: boolean };
+  defer: DeferFn;
 };
 
 let pinLock: PinLock = { failures: 0, lockedUntil: 0 };
@@ -43,5 +45,6 @@ export async function defaultDeps(): Promise<AppDeps> {
       mintStamps = result.stamps;
       return { ok: result.ok };
     },
+    defer: scheduleAfterResponse,
   };
 }

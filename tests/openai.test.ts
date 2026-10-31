@@ -44,6 +44,17 @@ describe("mint", () => {
     expect(session.model).toBe("gpt-realtime-2.1-mini");
     expect(session.audio.input.turn_detection).toMatchObject({ type: "semantic_vad", eagerness: "low" });
     expect(session.audio.output.voice).toBe("marin");
+    const withHint = buildClientSecretRequest({
+      apiKey: "sk-test-secret",
+      model: "gpt-realtime-2.1-mini",
+      voice: "marin",
+      speed: 0.92,
+      transcriptionModel: "gpt-4o-mini-transcribe",
+      noiseReduction: "far_field",
+      instructions: "Le gusta el tango",
+      transcriptionPrompt: "Elena, Lucía, Troilo, Pocitos",
+    });
+    expect(JSON.stringify(withHint.body)).toContain("Elena, Lucía, Troilo, Pocitos");
     expect(JSON.stringify(request.body)).toContain("Le gusta el tango");
     expect(request.headers.Authorization).toBe("Bearer sk-test-secret");
     const rejected = await mintClientSecret(
@@ -120,7 +131,15 @@ describe("summary", () => {
     expect(fallback.facts).toEqual([]);
     expect(fallback.summary).toContain("río");
     expect(shouldAlertFromSummary({ level: 3, reason: "idea", excerpt: "me quiero morir" })?.kind).toBe("suicide");
-    expect(shouldAlertFromSummary({ level: 3, reason: "ruido", excerpt: "me gusta el té" })).toBeNull();
+    expect(
+      shouldAlertFromSummary({
+        level: 2,
+        kind: "concern",
+        reason: "ya no le encuentra sentido",
+        excerpt: "dice que ya no le encuentra sentido a nada",
+      }),
+    ).toMatchObject({ level: 2, kind: "concern" });
+    expect(shouldAlertFromSummary({ level: 3, reason: "ruido", excerpt: "me gusta el té" })?.level).toBe(3);
     expect(shouldAlertFromSummary(null)).toBeNull();
     const produced = await summarizeSession({
       apiKey: "sk-test",

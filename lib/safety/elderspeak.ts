@@ -7,14 +7,19 @@ const PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   { id: "mi-amor", pattern: /\bmi amor\b/ },
   { id: "corazon", pattern: /\bcorazon(cito)?\b/ },
   { id: "tesoro", pattern: /\btesoro\b/ },
-  { id: "cielo", pattern: /\bcielo\b/ },
   { id: "nene", pattern: /\bnen[ea]\b/ },
   { id: "chiquito", pattern: /\bchiquit[oa]\b/ },
   { id: "viejito", pattern: /\bviejit[oa]\b/ },
   { id: "diminutivo", pattern: /\b(gordit[oa]|mi nin[oa])\b/ },
 ];
 
+function isCieloVocative(text: string): boolean {
+  return /(?:^|[.,;:!?]\s*)(?:mi )?cielo(?:cito)?(?:\s*[.,;:!?']|$)/i.test(text) || /\bmi cielo(?:cito)?\b/.test(normalize(text));
+}
+
 export function findElderspeak(text: string): string[] {
   const normalized = normalize(text);
-  return PATTERNS.filter((item) => item.pattern.test(normalized)).map((item) => item.id);
+  const hits = PATTERNS.filter((item) => item.pattern.test(normalized)).map((item) => item.id);
+  if (isCieloVocative(text)) hits.push("cielo");
+  return hits;
 }

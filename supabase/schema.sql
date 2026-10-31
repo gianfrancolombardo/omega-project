@@ -53,10 +53,12 @@ CREATE TABLE IF NOT EXISTS sessions (
   usage_json TEXT NOT NULL,
   cost_usd REAL,
   cost_approximate INTEGER NOT NULL,
-  model TEXT NOT NULL,
-  voice TEXT NOT NULL,
-  summary_source TEXT
-);
+    model TEXT NOT NULL,
+    voice TEXT NOT NULL,
+    summary_source TEXT,
+    opener_kind TEXT,
+    summary_meta_json TEXT
+  );
 
 CREATE TABLE IF NOT EXISTS mood_signals (
   id TEXT PRIMARY KEY,
@@ -85,9 +87,10 @@ CREATE TABLE IF NOT EXISTS microgoals (
   id TEXT PRIMARY KEY,
   content TEXT NOT NULL,
   status TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  session_id TEXT
-);
+    created_at TEXT NOT NULL,
+    session_id TEXT,
+    followups INTEGER
+  );
 
 CREATE TABLE IF NOT EXISTS proactive_days (
   local_date TEXT PRIMARY KEY,

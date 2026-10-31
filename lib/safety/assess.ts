@@ -9,6 +9,12 @@ export type RiskAssessment = {
   reason: string;
 };
 
+export const AFTERCARE =
+  "Ya diste los números. Quedate con ella: preguntá si hay alguien en la casa y si está a salvo ahora. No vuelvas al tema anterior ni cierres la charla.";
+
+export const PASSIVE_NOTE =
+  "Preguntale directo y con calma si está pensando en hacerse daño. Si dice que sí, llamá flag_concern nivel 3.";
+
 const SUICIDE = [
   /\bsuicid/,
   /\bme quiero morir\b(?! de)/,
@@ -28,12 +34,34 @@ const SUICIDE = [
   /\bquitarme la vida\b/,
 ];
 
+const PASSIVE = [
+  /\bcansad[oa] de vivir\b/,
+  /\bojala no (me )?despierte\b/,
+  /\bsoy una carga\b/,
+  /\bestaria mejor muert[oa]\b/,
+  /\bpara que seguir\b/,
+  /\bya vivi demasiado\b/,
+  /\bya no le encuentro sentido\b/,
+  /\bno le encuentro sentido a nada\b/,
+];
+
+const STROKE =
+  /no puedo mover (el|la) (brazo|pierna|mano)|se me (durmio|cayo|torcio) (la cara|la boca|medio cuerpo)|no me salen las palabras/;
+
 function isFigurative(text: string): boolean {
   return /de risa|de la risa|de ganas|de calor|de verguenza|matar el tiempo|cai en la cuenta/.test(text);
 }
 
 function isSuicide(text: string): boolean {
   return SUICIDE.some((pattern) => pattern.test(text));
+}
+
+function isPassiveIdeation(text: string): boolean {
+  return PASSIVE.some((pattern) => pattern.test(text));
+}
+
+function isStroke(text: string): boolean {
+  return STROKE.test(text);
 }
 
 function isEmergency(text: string): boolean {
@@ -45,8 +73,9 @@ function isEmergency(text: string): boolean {
   if (/me cai de la cama/.test(text)) return true;
   if (/estoy en el (piso|suelo)/.test(text) && /levant/.test(text)) return true;
   if (/me cai/.test(text) && /no (me )?puedo levantar|no puedo levantarme/.test(text)) return true;
-  if (/no me puedo levantar|no puedo levantarme/.test(text) && !/temprano|a la manana/.test(text)) return true;
+  if (/no me puedo levantar|no puedo levantarme/.test(text) && /me cai|caida|piso|suelo/.test(text)) return true;
   if (/me (esta |estan )?pegando|me maltrata|alguien me pega/.test(text)) return true;
+  if (isStroke(text)) return true;
   return false;
 }
 
@@ -63,7 +92,10 @@ export function assessUtterance(text: string): RiskAssessment {
   if (!figurative && isSuicide(normalized)) {
     return { level: 3, kind: "suicide", reason: "Ideación suicida" };
   }
-  const emergencyAllowed = !figurative || /pecho|infarto|piso|suelo|cama|pegando|maltrata/.test(normalized);
+  if (!figurative && isPassiveIdeation(normalized)) {
+    return { level: 2, kind: "suicide", reason: "Ideación pasiva" };
+  }
+  const emergencyAllowed = !figurative || /pecho|infarto|piso|suelo|cama|pegando|maltrata|brazo|boca|palabras/.test(normalized);
   if (emergencyAllowed && isEmergency(normalized)) {
     return { level: 3, kind: "emergency", reason: "Posible emergencia física" };
   }

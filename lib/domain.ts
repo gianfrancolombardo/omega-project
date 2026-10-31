@@ -85,6 +85,23 @@ export type TranscriptTurn = {
   role: "user" | "assistant";
   text: string;
   at: string;
+  itemId?: string;
+};
+
+export type OpenerKind = "thread" | "today";
+
+export type HumanContact = {
+  mentioned: boolean;
+  who: string[];
+};
+
+export type SummaryMeta = {
+  mood: number | null;
+  engagedTopics: string[];
+  declinedTopics: string[];
+  humanContact: HumanContact;
+  closedThreads: string[];
+  checkinItemsAsked: string[];
 };
 
 export type SessionStatus =
@@ -142,6 +159,8 @@ export type SessionRecord = {
   model: string;
   voice: string;
   summarySource: "model" | "fallback" | null;
+  openerKind?: OpenerKind | null;
+  summaryMeta?: SummaryMeta | null;
 };
 
 export type MoodInstrument = "ucla3" | "who5" | "phq2" | "daily";
@@ -174,9 +193,10 @@ export type AlertRecord = {
 export type Microgoal = {
   id: string;
   content: string;
-  status: "open" | "done";
+  status: "open" | "done" | "dropped";
   createdAt: string;
   sessionId: string | null;
+  followups?: number;
 };
 
 export type ProactiveDay = {

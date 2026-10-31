@@ -10,6 +10,7 @@ import type {
   MoodInstrument,
   MoodSignal,
   NormalizedUsage,
+  OpenerKind,
   ProactiveDay,
   ProactiveEvent,
   Profile,
@@ -17,8 +18,10 @@ import type {
   SessionInitiator,
   SessionRecord,
   SessionStatus,
+  SummaryMeta,
   TranscriptTurn,
 } from "@/lib/domain";
+import { openerKindFor } from "@/lib/session/opener";
 import { EMPTY_USAGE } from "@/lib/domain";
 import { planFactWrite } from "@/lib/memory/reconcile";
 import { isClinicalContent, isFactCategory } from "@/lib/profile";
@@ -39,8 +42,11 @@ export type MemoryStore = {
   listFacts(): Promise<Fact[]>;
   searchFacts(query: string, limit?: number): Promise<Fact[]>;
   forgetFact(query: string): Promise<Fact | null>;
+  addAvoidTopic(topic: string): Promise<Profile>;
   deleteFact(id: string): Promise<boolean>;
   clearMemory(nowIso: string): Promise<void>;
+  purgeOldTranscripts(beforeIso: string): Promise<void>;
+  bumpMicrogoalFollowup(id: string): Promise<void>;
   createSession(input: {
     initiator: SessionInitiator;
     module: string;
@@ -95,6 +101,8 @@ export type SessionUpdate = {
   costUsd?: number | null;
   costApproximate?: boolean;
   summarySource?: "model" | "fallback" | null;
+  openerKind?: OpenerKind | null;
+  summaryMeta?: SummaryMeta | null;
 };
 
 type StoreOptions = {
@@ -244,6 +252,8 @@ function mapSession(row: SqlRow, includeTranscript: boolean): SessionRecord {
       text(row, "summary_source") === "model" || text(row, "summary_source") === "fallback"
         ? (text(row, "summary_source") as "model" | "fallback")
         : null,
+    openerKind: text(row, "opener_kind") === "thread" || text(row, "opener_kind") === "today" ? (text(row, "opener_kind") as OpenerKind) : null,
+    summaryMeta: parseJson<SummaryMeta | null>(text(row, "summary_meta_json"), null),
   };
 }
 
@@ -281,12 +291,14 @@ function mapAlert(row: SqlRow): AlertRecord {
 }
 
 function mapGoal(row: SqlRow): Microgoal {
+  const status = text(row, "status");
   return {
     id: text(row, "id"),
     content: text(row, "content"),
-    status: text(row, "status") === "done" ? "done" : "open",
+    status: status === "done" ? "done" : status === "dropped" ? "dropped" : "open",
     createdAt: text(row, "created_at"),
     sessionId: nullable(row, "session_id"),
+    followups: num(row, "followups"),
   };
 }
 
@@ -416,19 +428,30 @@ export function createMemoryStore(db: Db, options: StoreOptions = {}): MemorySto
       const facts = await this.listFacts();
       if (!facts.length) return null;
       const normalized = normalize(query);
-      let target: Fact | undefined;
-      if (!normalized || FORGET_LATEST.test(normalized)) {
-        target = facts[0];
-      } else {
-        const ranked = facts
-          .map((fact) => ({ fact, score: scoreFact(query, fact.content) }))
-          .filter((item) => item.score > 0)
-          .sort((a, b) => b.score - a.score);
-        target = ranked[0]?.fact;
-      }
+      if (!normalized || FORGET_LATEST.test(normalized)) return null;
+      const ranked = facts
+        .map((fact) => ({ fact, score: scoreFact(query, fact.content) }))
+        .filter((item) => item.score > 0)
+        .sort((a, b) => b.score - a.score);
+      const target = ranked[0]?.fact;
       if (!target) return null;
       await db.run("DELETE FROM facts WHERE id = ?", [target.id]);
       return target;
+    },
+    async addAvoidTopic(topic) {
+      const profile = await readProfile();
+      const incoming = topic.trim().replace(/\s+/g, " ").slice(0, 120);
+      if (!incoming) return profile;
+      const current = profile.avoidTopics.trim();
+      if (normalize(current).includes(normalize(incoming))) return profile;
+      const next = current ? `${current}, ${incoming}` : incoming;
+      return this.updateProfile({ avoidTopics: next.slice(0, 1000) });
+    },
+    async purgeOldTranscripts(beforeIso) {
+      await db.run("UPDATE sessions SET transcript_json = '[]' WHERE started_at < ? AND transcript_json != '[]'", [beforeIso]);
+    },
+    async bumpMicrogoalFollowup(id) {
+      await db.run("UPDATE microgoals SET followups = COALESCE(followups, 0) + 1 WHERE id = ? AND status = 'open'", [id]);
     },
     async deleteFact(id) {
       const result = await db.run("DELETE FROM facts WHERE id = ?", [id]);
@@ -449,8 +472,10 @@ export function createMemoryStore(db: Db, options: StoreOptions = {}): MemorySto
     async createSession(input) {
       const token = randomBytes(32).toString("base64url");
       const createdAt = now().toISOString();
+      const id = newId();
+      const openerKind = openerKindFor(id);
       const session: SessionRecord = {
-        id: newId(),
+        id,
         startedAt: createdAt,
         endedAt: null,
         initiator: input.initiator,
@@ -470,15 +495,18 @@ export function createMemoryStore(db: Db, options: StoreOptions = {}): MemorySto
         model: input.model,
         voice: input.voice,
         summarySource: null,
+        openerKind,
+        summaryMeta: null,
       };
       await db.run(
         `INSERT INTO sessions (
           id, token_hash, started_at, ended_at, initiator, module, status,
           transcript_json, summary, open_threads_json, duration_seconds,
           user_words, agent_words, misunderstood_count, elderspeak_hits,
-          usage_json, cost_usd, cost_approximate, model, voice, summary_source
-        ) VALUES (?, ?, ?, NULL, ?, ?, 'active', '[]', '', '[]', NULL, 0, 0, 0, 0, ?, NULL, 0, ?, ?, NULL)`,
-        [session.id, hashSecret(token), createdAt, input.initiator, input.module, JSON.stringify(EMPTY_USAGE), input.model, input.voice],
+          usage_json, cost_usd, cost_approximate, model, voice, summary_source,
+          opener_kind, summary_meta_json
+        ) VALUES (?, ?, ?, NULL, ?, ?, 'active', '[]', '', '[]', NULL, 0, 0, 0, 0, ?, NULL, 0, ?, ?, NULL, ?, NULL)`,
+        [session.id, hashSecret(token), createdAt, input.initiator, input.module, JSON.stringify(EMPTY_USAGE), input.model, input.voice, openerKind],
       );
       return { session, token };
     },
@@ -506,6 +534,8 @@ export function createMemoryStore(db: Db, options: StoreOptions = {}): MemorySto
       if (patch.costUsd !== undefined) set("cost_usd", patch.costUsd);
       if (patch.costApproximate !== undefined) set("cost_approximate", patch.costApproximate ? 1 : 0);
       if (patch.summarySource !== undefined) set("summary_source", patch.summarySource);
+      if (patch.openerKind !== undefined) set("opener_kind", patch.openerKind);
+      if (patch.summaryMeta !== undefined) set("summary_meta_json", patch.summaryMeta ? JSON.stringify(patch.summaryMeta) : null);
       if (assignments.length) {
         params.push(id);
         await db.run(`UPDATE sessions SET ${assignments.join(", ")} WHERE id = ?`, params);
@@ -519,7 +549,8 @@ export function createMemoryStore(db: Db, options: StoreOptions = {}): MemorySto
         `SELECT id, token_hash, started_at, ended_at, initiator, module, status,
           '' AS transcript_json, summary, open_threads_json, duration_seconds,
           user_words, agent_words, misunderstood_count, elderspeak_hits,
-          usage_json, cost_usd, cost_approximate, model, voice, summary_source
+          usage_json, cost_usd, cost_approximate, model, voice, summary_source,
+          opener_kind, summary_meta_json
          FROM sessions ORDER BY started_at DESC LIMIT ?`,
         [limit],
       );
@@ -592,15 +623,21 @@ export function createMemoryStore(db: Db, options: StoreOptions = {}): MemorySto
         status: "open",
         createdAt: now().toISOString(),
         sessionId,
+        followups: 0,
       };
       await db.run(
-        "INSERT INTO microgoals (id, content, status, created_at, session_id) VALUES (?, ?, 'open', ?, ?)",
+        "INSERT INTO microgoals (id, content, status, created_at, session_id, followups) VALUES (?, ?, 'open', ?, ?, 0)",
         [goal.id, goal.content, goal.createdAt, goal.sessionId],
       );
       return goal;
     },
     async listOpenMicrogoals() {
-      const rows = await db.all("SELECT * FROM microgoals WHERE status = 'open' ORDER BY created_at ASC");
+      const cutoff = new Date(now().getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      await db.run(
+        "UPDATE microgoals SET status = 'dropped' WHERE status = 'open' AND (created_at < ? OR COALESCE(followups, 0) >= 2)",
+        [cutoff],
+      );
+      const rows = await db.all("SELECT * FROM microgoals WHERE status = 'open' ORDER BY created_at DESC");
       return rows.map(mapGoal);
     },
     async completeMicrogoal(query) {
@@ -609,7 +646,7 @@ export function createMemoryStore(db: Db, options: StoreOptions = {}): MemorySto
       const normalized = normalize(query);
       const target =
         !normalized || FORGET_LATEST.test(normalized)
-          ? goals[goals.length - 1]
+          ? goals[0]
           : goals
               .map((goal) => ({ goal, score: scoreFact(query, goal.content) }))
               .filter((item) => item.score > 0)
