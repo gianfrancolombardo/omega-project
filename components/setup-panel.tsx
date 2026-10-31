@@ -416,7 +416,7 @@ export function SetupPanel() {
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <p className="text-lg">
-              Clara anota gustos, personas, fechas y datos de la vida cotidiana que aparecen en las charlas. No guarda pastillas ni diagnósticos. Si algo está mal, borralo.
+              Clara anota sola los gustos, las personas, las fechas y los datos de la vida cotidiana que aparecen en las charlas. La persona no tiene que pedirle que guarde nada. No guarda pastillas ni diagnósticos. Si algo está mal, borralo acá.
             </p>
             {snapshot.facts.length === 0 ? <p className="text-lg">Todavía no hay recuerdos guardados.</p> : null}
             <ul className="flex flex-col gap-3">

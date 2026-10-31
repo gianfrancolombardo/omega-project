@@ -206,7 +206,7 @@ describe("profile, copy and phrases", () => {
 });
 
 describe("planner, policy and mood", () => {
-  it("does not repeat yesterday and waits for consent", () => {
+  it("does not repeat yesterday's module", () => {
     expect(isMainModule("charla")).toBe(true);
     expect(isMainModule("juego")).toBe(false);
     expect(chooseModule("2026-10-29", [{ module: "charla", localDate: "2026-10-28" }]).module).not.toBe("charla");
@@ -217,7 +217,6 @@ describe("planner, policy and mood", () => {
       history: [],
       now: new Date("2026-10-29T14:00:00.000Z"),
       addressForm: "vos",
-      consented: false,
     });
     expect(first.module).toBe("charla");
     expect(first.checkin).toBeNull();
@@ -228,7 +227,6 @@ describe("planner, policy and mood", () => {
       history: [],
       now: new Date("2026-10-29T14:00:00.000Z"),
       addressForm: "vos",
-      consented: true,
     });
     expect(later.module).not.toBe("charla");
     expect(later.checkinLine).toContain("log_mood");
@@ -250,7 +248,6 @@ describe("planner, policy and mood", () => {
       history: CHECKIN_ITEMS.map((item) => ({ instrument: item.instrument, itemId: item.itemId, createdAt: "2026-10-28T12:00:00.000Z" })),
       now: new Date("2026-10-29T14:00:00.000Z"),
       addressForm: "vos",
-      consented: true,
     });
     expect(curious.module).toBe("curiosidad");
     expect(curious.theme).toContain("atardecer");
@@ -515,8 +512,15 @@ describe("cost, prompt and notify", () => {
       microgoals: [],
       plan: { module: "charla", reason: "presentación", theme: "presentarse", checkin: null, checkinLine: null },
       dateLabel: "hoy",
+      firstSession: true,
     });
-    expect(intro.greetingCue.toLowerCase()).toContain("inteligencia artificial");
+    expect(intro.greetingCue).toContain("Soy Clara");
+    expect(intro.greetingCue).toContain("sin agregar que sos una inteligencia artificial");
+    expect(intro.greetingCue.toLowerCase()).not.toContain("guardar memoria");
+    expect(intro.greetingCue).not.toContain("Presentate");
+    expect(intro.instructions).toContain("te pregunten qué sos");
+    expect(intro.instructions).not.toContain("pedí un sí");
+    expect(intro.instructions).toContain("911");
     expect(await awaitNotify()).toContain("Aviso");
   });
 });

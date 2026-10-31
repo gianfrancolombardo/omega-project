@@ -307,7 +307,8 @@ describe("tool and setup edges", () => {
     expect(JSON.stringify((await call("remember_fact", "{")).body)).toContain("categoría");
     expect(JSON.stringify((await call("remember_fact", { category: "gusto", content: "Toma una pastilla" })).body)).toContain("medicación");
     await call("remember_fact", { category: "gusto", content: "Le gusta el mate" });
-    expect(JSON.stringify((await call("remember_fact", { category: "gusto", content: "Le gusta el mate" })).body)).toContain("ya estaba");
+    expect(JSON.stringify((await call("remember_fact", { category: "gusto", content: "Le gusta el mate" })).body)).toContain("Silencio");
+    expect(await store.listFacts()).toHaveLength(1);
     expect(JSON.stringify((await call("recall_facts", { query: "playa" })).body)).toContain("No hay");
     expect(JSON.stringify((await call("forget_fact", { query: "playa" })).body)).toContain("No encontré");
     expect((await call("log_mood", { instrument: "nope", raw_answer: "bien" })).body).toMatchObject({ hangup: null });
@@ -407,7 +408,8 @@ describe("mint, summary and prompt edges", () => {
         source: "summary" as const,
       })),
     );
-    expect(full).toContain("dígame");
+    expect(full).toContain("Si quiere");
+    expect(full.toLowerCase()).not.toContain("olvide");
     const huge = assembleInstructions({
       profile: profile({
         displayName: "",
@@ -464,7 +466,6 @@ describe("planner and safety phrases", () => {
       history: [] as { instrument: string; itemId: string; createdAt: string }[],
       now: new Date("2026-10-29T14:00:00.000Z"),
       addressForm: "vos" as const,
-      consented: true,
     };
     const openTheme = planDay({ ...base, recent: [], sessionCount: 0 }).theme;
     expect(openTheme).not.toMatch(/gusto/i);
@@ -501,7 +502,7 @@ describe("planner and safety phrases", () => {
       }).module,
     ).toBe("opinion");
     expect(chooseModule("no-es-fecha", [{ module: "juego", localDate: "ayer" }]).module).toBe("charla");
-    expect(planDay({ ...base, recent: [], consented: true, sessionCount: 2 }).checkinLine).toContain("log_mood");
+    expect(planDay({ ...base, recent: [], sessionCount: 2 }).checkinLine).toContain("log_mood");
 
     const ucla = CHECKIN_ITEMS.filter((item) => item.instrument === "ucla3");
     const picked = selectCheckinItem({
