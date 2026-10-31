@@ -143,6 +143,7 @@ export function SetupPanel() {
           emergencyRelation: profile.emergencyRelation,
           reducedHearing: profile.reducedHearing,
           subtitles: profile.subtitles,
+          rememberEnabled: !profile.memoryDeclinedAt,
         }),
       });
       const body: unknown = await response.json().catch(() => null);
@@ -418,6 +419,17 @@ export function SetupPanel() {
             <p className="text-lg">
               Clara anota sola los gustos, las personas, las fechas y los datos de la vida cotidiana que aparecen en las charlas. La persona no tiene que pedirle que guarde nada. No guarda pastillas ni diagnósticos. Si algo está mal, borralo acá.
             </p>
+            <label className="flex items-center gap-3 text-lg">
+              <input
+                type="checkbox"
+                checked={Boolean(profile.memoryDeclinedAt)}
+                onChange={(event) =>
+                  patchProfile({ memoryDeclinedAt: event.target.checked ? new Date().toISOString() : null })
+                }
+                className="size-6"
+              />
+              No quiere que Clara recuerde
+            </label>
             {snapshot.facts.length === 0 ? <p className="text-lg">Todavía no hay recuerdos guardados.</p> : null}
             <ul className="flex flex-col gap-3">
               {snapshot.facts.map((fact) => {

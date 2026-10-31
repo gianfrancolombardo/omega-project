@@ -67,8 +67,10 @@ describe("sqlite memory", () => {
     await store.undoProactiveClaim("2026-10-29");
     expect((await store.getProactiveDay("2026-10-29")).attempts).toBe(0);
     await store.undoProactiveClaim("1999-01-01");
-    const forgotten = await store.forgetFact("ultimo");
+    expect(await store.forgetFact("ultimo")).toBeNull();
+    const forgotten = await store.forgetFact("tango");
     expect(forgotten?.content).toContain("tango");
+    await store.addAvoidTopic("tango");
     expect(await store.forgetFact("playa")).toBeNull();
     await store.addFact({ category: "lugar", content: "La rambla de Pocitos" });
     expect((await store.forgetFact("rambla"))?.content).toContain("rambla");

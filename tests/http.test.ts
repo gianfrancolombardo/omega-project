@@ -98,7 +98,8 @@ describe("http handlers", () => {
     const again = await handleEndSession(deps, pinHeaders(), { sessionToken: body.sessionToken, outcome: "completed" });
     expect(again.body).toMatchObject({ alreadyEnded: true });
     const facts = await store.listFacts();
-    expect(facts.some((fact) => fact.content.includes("Troilo"))).toBe(true);
+    expect(facts.some((fact) => fact.content.toLowerCase().includes("troilo"))).toBe(false);
+    expect((await store.getProfile()).avoidTopics.toLowerCase()).toContain("troilo");
     expect(parseTranscript("no")).toEqual([]);
 
     const health = await handleHealth(deps);

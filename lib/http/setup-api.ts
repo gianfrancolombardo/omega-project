@@ -61,6 +61,15 @@ export async function handleSetupGet(deps: AppDeps, headers: Headers): Promise<H
 export async function handleSetupPut(deps: AppDeps, headers: Headers, body: unknown): Promise<HttpResult> {
   const denied = requirePin(deps, headers);
   if (denied) return denied;
+  const record = asRecord(body);
+  if (typeof record?.rememberEnabled === "boolean") {
+    const current = await deps.store.getProfile();
+    const declined = Boolean(current.memoryDeclinedAt);
+    const wantDecline = !record.rememberEnabled;
+    if (declined !== wantDecline) {
+      await deps.store.recordConsent(deps.now().toISOString(), !wantDecline);
+    }
+  }
   const parsed = parseProfilePatch(body);
   if (!parsed.ok) return { status: 400, body: { error: "invalid_profile", message: parsed.message } };
   const profile = await deps.store.updateProfile(parsed.value);

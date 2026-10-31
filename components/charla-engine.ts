@@ -7,11 +7,14 @@ import {
   listeningLabel,
 } from "@/lib/copy";
 import type { AddressForm, SessionInitiator, SessionStatus } from "@/lib/domain";
+import { sumUsage } from "@/lib/metrics/cost";
 import type { PublicProfile } from "@/lib/profile-public";
 import { responseCreateEvent } from "@/lib/realtime/events";
 import { createLiveState, reduceLive, type LiveAction, type LiveContext, type LiveEffect, type LiveState } from "@/lib/realtime/logic";
 import { acceptTap } from "@/lib/session/policy";
-import { formatClock, formatLongDate } from "@/lib/time";
+import { formatClock, formatLongDate, zonedParts } from "@/lib/time";
+
+const PENDING_END_KEY = "charla.pendingEnd";
 
 export type ScreenPhase = "idle" | "inviting" | "connecting" | "listening" | "thinking" | "speaking" | "problem";
 
@@ -36,6 +39,7 @@ type SessionPayload = {
   subtitles?: boolean;
   displayName?: string;
   message?: string;
+  model?: string;
 };
 
 function playChime(): void {
@@ -80,12 +84,13 @@ function statusText(input: {
   name: string;
   problem: string | null;
   needsGesture: boolean;
+  hour: number;
 }): string {
   if (input.needsGesture && input.phase !== "idle" && input.phase !== "problem") {
     return "Tocá la pantalla para escucharme";
   }
   if (input.phase === "problem") return input.problem || "Hay un problema con la voz.";
-  if (input.phase === "inviting") return inviteLabel(input.form, input.name);
+  if (input.phase === "inviting") return inviteLabel(input.form, input.name, input.hour);
   if (input.phase === "connecting") return "Conectando…";
   if (input.phase === "listening") return listeningLabel(input.form);
   if (input.phase === "thinking") return "Pensando…";
@@ -108,6 +113,8 @@ export function attachCharlaSession(
   let showSubtitles = true;
   let clock = "";
   let dateLabel = "";
+  let hour = 11;
+  let model = "gpt-realtime-2.1-mini";
   const pin = window.localStorage.getItem(DEVICE_PIN_STORAGE_KEY) ?? "";
   let openaiOk = false;
   let live: LiveState | null = null;
@@ -132,7 +139,7 @@ export function attachCharlaSession(
     const name = profile?.displayName ?? "";
     return {
       phase,
-      status: statusText({ phase, form, name, problem, needsGesture }),
+      status: statusText({ phase, form, name, problem, needsGesture, hour }),
       subtitle: showSubtitles ? subtitle : "",
       problem,
       needsGesture,
@@ -199,11 +206,20 @@ export function attachCharlaSession(
       setScreen("idle");
     }
     if (!currentToken) return;
+    const usage = sumUsage(model, usageEvents).usage;
+    const payload = JSON.stringify({ sessionToken: currentToken, outcome, transcript: turns, usage, userSpoke });
+    const hiding = typeof document !== "undefined" && document.visibilityState === "hidden";
     void fetch("/api/session/end", {
       method: "POST",
-      keepalive: true,
+      keepalive: hiding && payload.length < 60_000,
       headers: headers(true),
-      body: JSON.stringify({ sessionToken: currentToken, outcome, transcript: turns, usageEvents, userSpoke }),
+      body: payload,
+    }).catch(() => {
+      try {
+        window.localStorage.setItem(PENDING_END_KEY, payload);
+      } catch {
+        // The next start retries if the tablet still has storage.
+      }
     });
   }
 
@@ -217,6 +233,20 @@ export function attachCharlaSession(
       return;
     }
     if (effect.type === "tool") {
+      if (effect.background) {
+        void fetch("/api/tools", {
+          method: "POST",
+          keepalive: true,
+          headers: headers(true),
+          body: JSON.stringify({
+            sessionToken: token,
+            name: effect.name,
+            arguments: effect.arguments,
+            emergency: live?.emergency === true,
+          }),
+        }).catch(() => undefined);
+        return;
+      }
       void runTool(effect.name, effect.callId, effect.arguments);
       return;
     }
@@ -255,7 +285,7 @@ export function attachCharlaSession(
       const response = await fetch("/api/tools", {
         method: "POST",
         headers: headers(true),
-        body: JSON.stringify({ sessionToken: token, name, arguments: args }),
+        body: JSON.stringify({ sessionToken: token, name, arguments: args, emergency: live?.emergency === true }),
       });
       const data = (await response.json()) as { output?: string; hangup?: SessionStatus | null };
       if (typeof data.output === "string") output = data.output;
@@ -343,6 +373,26 @@ export function attachCharlaSession(
     await peer.setRemoteDescription({ type: "answer", sdp: await answer.text() });
   }
 
+  async function flushPendingEnd(): Promise<void> {
+    let pending = "";
+    try {
+      pending = window.localStorage.getItem(PENDING_END_KEY) ?? "";
+      if (pending) window.localStorage.removeItem(PENDING_END_KEY);
+    } catch {
+      return;
+    }
+    if (!pending) return;
+    try {
+      await fetch("/api/session/end", { method: "POST", headers: headers(true), body: pending });
+    } catch {
+      try {
+        window.localStorage.setItem(PENDING_END_KEY, pending);
+      } catch {
+        // A later start retries.
+      }
+    }
+  }
+
   async function start(initiator: SessionInitiator): Promise<void> {
     if (starting || !pin) return;
     starting = true;
@@ -351,6 +401,7 @@ export function attachCharlaSession(
     subtitle = "";
     setScreen("connecting");
     try {
+      await flushPendingEnd();
       const response = await fetch("/api/session", {
         method: "POST",
         headers: headers(true),
@@ -366,6 +417,7 @@ export function attachCharlaSession(
       token = data.sessionToken;
       greeting = data.greetingCue ?? "";
       showSubtitles = data.subtitles !== false;
+      if (data.model) model = data.model;
       ctx = {
         addressForm: data.addressForm === "usted" ? "usted" : "vos",
         initiator,
@@ -447,6 +499,7 @@ export function attachCharlaSession(
     const now = new Date();
     clock = formatClock(now, zone);
     dateLabel = formatLongDate(now, zone);
+    hour = zonedParts(now, zone).hour;
     publish();
   }
   tickClock();

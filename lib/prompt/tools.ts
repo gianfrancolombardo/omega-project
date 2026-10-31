@@ -3,24 +3,6 @@ import { FACT_CATEGORIES } from "@/lib/domain";
 export const REALTIME_TOOLS = [
   {
     type: "function",
-    name: "remember_fact",
-    description:
-      "Llamala en silencio, sin anunciarlo y sin pedir permiso, cuando aparezca un hecho durable: gusto, disgusto, interés, familia, lugar, fecha, historia, opinión, rutina, salud cotidiana o meta. No esperes que diga que lo guardes. Si ya había uno parecido, esta llamada lo reemplaza. No guardes medicación, dosis ni diagnósticos. No guardes charla de un momento ni lo que pidió no mencionar.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        category: {
-          type: "string",
-          enum: [...FACT_CATEGORIES],
-        },
-        content: { type: "string", description: "Una frase, en tercera persona." },
-      },
-      required: ["category", "content"],
-    },
-  },
-  {
-    type: "function",
     name: "recall_facts",
     description:
       "Consultá en silencio antes de afirmar un dato de su vida que no esté en las instrucciones. No digas que estás buscando ni que hay una memoria.",
@@ -35,7 +17,7 @@ export const REALTIME_TOOLS = [
     type: "function",
     name: "forget_fact",
     description:
-      "Llamala en silencio si pide no volver a mencionar algo. No confirmes un borrado ni hables de una memoria. Si no precisa qué, pasá query 'ultimo'.",
+      "Llamala si pide no volver a mencionar algo o dice «olvidá eso». Si precisa el tema, pasá ese tema. Si no precisa, no adivines: pasá query 'ultimo' y preguntá «¿lo de …?» con un dato reciente.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -45,9 +27,21 @@ export const REALTIME_TOOLS = [
   },
   {
     type: "function",
+    name: "record_consent",
+    description:
+      "Solo si la persona dice por su cuenta que no quiere que te acuerdes de nada, o que sí. No lo pidas. No hables de permiso.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { accepted: { type: "boolean" } },
+      required: ["accepted"],
+    },
+  },
+  {
+    type: "function",
     name: "what_do_you_know",
     description:
-      "Si pregunta qué sabés de ella, respondé con el texto devuelto, en pocas frases y con naturalidad. No digas que tenés una memoria, no ofrezcas guardar ni borrar, y no uses esa lista para elegir el tema siguiente.",
+      "Si pregunta qué sabés de ella, respondé con el texto devuelto. Podés decir con naturalidad que te acordás de cosas que te contó. No ofrezcas guardar ni borrar.",
     parameters: { type: "object", additionalProperties: false, properties: {}, required: [] },
   },
   {
@@ -72,7 +66,7 @@ export const REALTIME_TOOLS = [
     type: "function",
     name: "save_microgoal",
     description:
-      "Anotá en silencio una micro-meta que ella eligió, para preguntarle otro día cómo le fue. No digas que la guardás.",
+      "Anotá en silencio una micro-meta que ella eligió, concreta y para mañana. Mejor si incluye a alguien de su gente. No digas que la guardás.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -95,7 +89,7 @@ export const REALTIME_TOOLS = [
     type: "function",
     name: "flag_concern",
     description:
-      "Alerta de seguridad. Nivel 3: caída, no puede levantarse, dolor o presión en el pecho, falta de aire, infarto, maltrato, o ganas de morir o hacerse daño. Nivel 2: hace días que no come, no duerme o está sin ganas. No la uses por una queja de un día.",
+      "Alerta de seguridad. Nivel 3: caída con no poder levantarse, dolor o presión en el pecho, falta de aire, signos de ACV, maltrato, o ganas de morir o hacerse daño. Nivel 2: hace días que no come, no duerme o está sin ganas; ideación pasiva. No la uses por una queja de un día ni por «no me puedo levantar» si es su día a día.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -135,3 +129,5 @@ export const REALTIME_TOOLS = [
     },
   },
 ] as const;
+
+export const FACT_TOOL_CATEGORIES = FACT_CATEGORIES;

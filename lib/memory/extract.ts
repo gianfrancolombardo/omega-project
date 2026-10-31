@@ -12,6 +12,7 @@ function tidyObject(raw: string): string {
   text = text.replace(/[¿?¡!"]/g, "").replace(/[.,;:]+$/g, "").trim();
   if (text.length > 80) text = text.slice(0, 80).trim();
   if (text.length < 3 || VAGUE.test(text) || /^(?:me|no|yo|cuando)\b/i.test(text)) return "";
+  if (/\b(mi|mis|me)\b/i.test(text)) return "";
   return text;
 }
 
@@ -55,6 +56,7 @@ function likePrefix(verb: string): string {
 
 function extractFromSentence(sentence: string): IncomingFact[] {
   if (sentence.length < 8 || isClinicalContent(sentence) || assessUtterance(sentence).level > 0) return [];
+  if (/\bno s[eé] si\b/i.test(sentence) || /\ba veces\b/i.test(sentence)) return [];
   const facts: IncomingFact[] = [];
   const dislike = sentence.match(/\b(no me gusta|no me gustan|odio|detesto|no soporto)\s+(.+)/i);
   if (dislike?.[2]) {
@@ -87,16 +89,10 @@ function extractFromSentence(sentence: string): IncomingFact[] {
     const place = firstPlace(born[1]);
     if (place) facts.push({ category: "lugar", content: `Nació o creció en ${place}.` });
   } else {
-    const lives = sentence.match(/\b(?:vivo|vivía|vivia|viví|vivi)\s+en\s+(.+)/i);
-    if (lives?.[1]) {
-      const place = firstPlace(lives[1]);
-      if (place) facts.push({ category: "lugar", content: `Vive o vivió en ${place}.` });
-    } else {
-      const from = sentence.match(/\bsoy de\s+(.+)/i);
-      if (from?.[1]) {
-        const place = firstPlace(from[1]);
-        if (place) facts.push({ category: "lugar", content: `Es de ${place}.` });
-      }
+    const from = sentence.match(/\bsoy de\s+(.+)/i);
+    if (from?.[1]) {
+      const place = firstPlace(from[1]);
+      if (place) facts.push({ category: "lugar", content: `Es de ${place}.` });
     }
   }
 
@@ -108,18 +104,6 @@ function extractFromSentence(sentence: string): IncomingFact[] {
 
   const health = healthFact(sentence);
   if (health) facts.push(health);
-
-  const memory = sentence.match(/\bme acuerdo (?:de |cuando |que )(.+)/i);
-  if (memory?.[1]) {
-    const detail = tidyObject(memory[1]);
-    if (detail.length >= 8) facts.push({ category: "historia", content: `Recuerdo: ${detail}.` });
-  }
-
-  const routine = sentence.match(/\b(todas las mañanas|todos los días|todos los dias|cada tarde|cada noche)\s+(.+)/i);
-  if (routine?.[1] && routine[2]) {
-    const detail = tidyObject(routine[2]);
-    if (detail.length >= 6) facts.push({ category: "rutina", content: `Rutina: ${routine[1]} ${detail}.` });
-  }
 
   return facts;
 }

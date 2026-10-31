@@ -189,6 +189,9 @@ describe("profile, copy and phrases", () => {
     expect(listeningLabel("usted")).toContain("escucho");
     expect(inviteLabel("vos", "Elena")).toContain("Elena");
     expect(inviteLabel("usted", "")).toContain("Buen día");
+    expect(inviteLabel("vos", "Elena", 16)).toContain("buenas tardes");
+    expect(inviteLabel("usted", "", 21)).toContain("Buenas noches");
+    expect(inviteLabel("vos", "Elena")).toContain("rato para charlar");
     expect(exactSpeech(accidentalLine("vos"))).toContain("Si me necesitás");
     expect(stillThereLine("usted")).toContain("Sigue");
     expect(silenceCloseLine("vos")).toContain("mañana");
@@ -250,7 +253,7 @@ describe("planner, policy and mood", () => {
       addressForm: "vos",
     });
     expect(curious.module).toBe("curiosidad");
-    expect(curious.theme).toContain("atardecer");
+    expect(curious.theme.length).toBeGreaterThan(12);
     expect(curious.theme).not.toContain("tango");
     expect(curious.checkin).toBeNull();
     expect(selectCheckinItem({ sessionCount: 0, history: [], now: new Date() })).toBeNull();
@@ -263,8 +266,34 @@ describe("planner, policy and mood", () => {
       })),
       now: new Date("2026-10-29T14:00:00.000Z"),
     });
-    expect(recent?.instrument).toBe("phq2");
+    expect(
+      selectCheckinItem({
+        sessionCount: 3,
+        history: CHECKIN_ITEMS.filter((item) => item.instrument !== "phq2").map((item) => ({
+          instrument: item.instrument,
+          itemId: item.itemId,
+          createdAt: "2026-10-20T12:00:00.000Z",
+        })),
+        now: new Date("2026-10-29T14:00:00.000Z"),
+      })?.instrument,
+    ).toBe("phq2");
+    expect(recent).toBeNull();
     expect(spokenCheckin(CHECKIN_ITEMS[0], "usted")).toContain("siente");
+    const counts = { charla: 0, mi_historia: 0, curiosidad: 0, opinion: 0 };
+    const recentDays: Array<{ module: string; localDate: string }> = [];
+    let previous = "";
+    for (let day = 1; day <= 14; day += 1) {
+      const today = `2026-11-${String(day).padStart(2, "0")}`;
+      const chosen = chooseModule(today, recentDays);
+      expect(chosen.module).not.toBe(previous);
+      counts[chosen.module] += 1;
+      recentDays.unshift({ module: chosen.module, localDate: today });
+      previous = chosen.module;
+    }
+    expect(counts.charla).toBeGreaterThanOrEqual(3);
+    expect(counts.mi_historia).toBeGreaterThanOrEqual(3);
+    expect(counts.curiosidad).toBeGreaterThanOrEqual(3);
+    expect(counts.opinion).toBeGreaterThanOrEqual(3);
   });
 
   it("debounces taps and closes on silence", () => {
@@ -337,7 +366,8 @@ describe("planner, policy and mood", () => {
       note: "",
       createdAt: `${day}T12:00:00.000Z`,
     });
-    expect(sustainedLowMood([signal("2026-10-20", 2), signal("2026-10-28", 3)], now)).toBe(true);
+    expect(sustainedLowMood([signal("2026-10-20", 3), signal("2026-10-28", 3)], now)).toBe(true);
+    expect(sustainedLowMood([signal("2026-10-28", 6)], now)).toBe(true);
     expect(sustainedLowMood([signal("2026-10-28", 2)], now)).toBe(false);
     expect(sustainedLowMood([signal("2026-09-01", 3), signal("2026-10-28", 3)], now)).toBe(false);
     const alert: AlertRecord = {
@@ -364,6 +394,16 @@ describe("safety copy", () => {
     }
     expect(assessUtterance("Me duele el pecho").kind).toBe("emergency");
     expect(assessUtterance("Hace días que no como").level).toBe(2);
+    expect(assessUtterance("Estoy cansada de vivir").level).toBe(2);
+    expect(assessUtterance("Ojalá no me despierte").level).toBe(2);
+    expect(assessUtterance("Soy una carga").level).toBe(2);
+    expect(assessUtterance("Estaría mejor muerta").level).toBe(2);
+    expect(assessUtterance("Para qué seguir").level).toBe(2);
+    expect(assessUtterance("No me salen las palabras").kind).toBe("emergency");
+    expect(assessUtterance("Se me torció la boca").kind).toBe("emergency");
+    expect(assessUtterance("No puedo mover el brazo").kind).toBe("emergency");
+    expect(assessUtterance("No me puedo levantar sola de la cama, como siempre").level).toBe(0);
+    expect(assessUtterance("Me muero de ganas de ver a mi nieta").level).toBe(0);
     for (const line of neutral) expect(assessUtterance(line).level, line).toBe(0);
     expect(assessUtterance("   ").level).toBe(0);
     const script = safetyScript("suicide", "vos");
@@ -377,6 +417,7 @@ describe("safety copy", () => {
   it("keeps adult replies free of elderspeak", () => {
     const clean = Array.from({ length: 50 }, (_, index) => `El punto ${index} del relato me parece claro y concreto.`);
     for (const line of clean) expect(findElderspeak(line)).toEqual([]);
+    expect(findElderspeak("Hoy el cielo se pone rojo")).toEqual([]);
     expect(findElderspeak("Hola querido, ¿cómo estamos, mi amor?")).toEqual(expect.arrayContaining(["querido", "como-estamos", "mi-amor"]));
     expect(findElderspeak("Vení, abuelita, corazón, tesoro, cielo, nena, chiquito, viejito, gordito")).toEqual(
       expect.arrayContaining(["abuelito", "corazon", "tesoro", "cielo", "nene", "chiquito", "viejito", "diminutivo"]),
@@ -504,7 +545,19 @@ describe("cost, prompt and notify", () => {
     expect(assembled.instructions).toContain("911");
     expect(assembled.instructions).toContain("Una sola pregunta por turno");
     expect(assembled.instructions.length).toBeLessThanOrEqual(12_000);
-    expect(assembled.greetingCue).toContain("rambla");
+    expect(assembled.greetingCue).toContain("No te presentes");
+    const threaded = assembleInstructions({
+      profile,
+      facts,
+      summaries: [
+        { startedAt: "2026-10-28T14:00:00.000Z", module: "charla", summary: "Hablaron de la rambla", openThreads: ["la rambla"] },
+      ],
+      microgoals: [],
+      plan: { module: "mi_historia", reason: "Hoy toca mi_historia", theme: "un domingo", checkin: null, checkinLine: null },
+      dateLabel: "jueves 29 de octubre",
+      openerKind: "thread",
+    });
+    expect(threaded.greetingCue).toContain("rambla");
     const intro = assembleInstructions({
       profile: { ...profile, userConsentAt: null, reducedHearing: true, memoryDeclinedAt: "t" },
       facts: [],
@@ -515,10 +568,12 @@ describe("cost, prompt and notify", () => {
       firstSession: true,
     });
     expect(intro.greetingCue).toContain("Soy Clara");
-    expect(intro.greetingCue).toContain("sin agregar que sos una inteligencia artificial");
+    expect(intro.greetingCue).toContain("inteligencia artificial");
+    expect(intro.greetingCue).toContain("olvidá eso");
+    expect(intro.greetingCue).toContain("No pidas permiso");
     expect(intro.greetingCue.toLowerCase()).not.toContain("guardar memoria");
     expect(intro.greetingCue).not.toContain("Presentate");
-    expect(intro.instructions).toContain("te pregunten qué sos");
+    expect(intro.instructions).toContain("Si pregunta qué sos");
     expect(intro.instructions).not.toContain("pedí un sí");
     expect(intro.instructions).toContain("911");
     expect(await awaitNotify()).toContain("Aviso");

@@ -4,6 +4,7 @@ import { migrate } from "@/lib/db/schema";
 import { createMemoryStore, type MemoryStore } from "@/lib/db/memory-store";
 import { parseEnv, type AppConfig } from "@/lib/env";
 import type { AppDeps } from "@/lib/http/deps";
+import { runNow } from "@/lib/http/defer";
 
 export async function memoryDb(now = "2026-10-29T14:00:00.000Z"): Promise<{ store: MemoryStore; close: () => void }> {
   const db = openSqliteMemory();
@@ -48,6 +49,7 @@ export function depsFor(
       stamps = result.stamps;
       return { ok: result.ok };
     },
+    defer: runNow,
   };
 }
 

@@ -84,10 +84,12 @@ export const CHECKIN_ITEMS: CheckinItem[] = [
 ];
 
 const GAPS_DAYS: Record<CheckinInstrument, number> = {
-  ucla3: 4,
-  who5: 4,
+  ucla3: 14,
+  who5: 7,
   phq2: 14,
 };
+
+const MIN_DAYS_BETWEEN_ANY = 3;
 
 export type CheckinHistory = {
   instrument: string;
@@ -117,6 +119,15 @@ export function selectCheckinItem(input: {
     if (!previousItem || entry.createdAt > previousItem) lastByItem.set(entry.itemId, entry.createdAt);
   }
 
+  let lastAny = "";
+  for (const stamp of lastByInstrument.values()) {
+    if (stamp > lastAny) lastAny = stamp;
+  }
+  if (lastAny) {
+    const sinceAny = daysBetween(input.now, lastAny);
+    if (sinceAny != null && sinceAny < MIN_DAYS_BETWEEN_ANY) return null;
+  }
+
   const due = (["ucla3", "who5", "phq2"] as CheckinInstrument[]).filter((instrument) => {
     const last = lastByInstrument.get(instrument);
     if (!last) return true;
@@ -141,7 +152,21 @@ export function selectCheckinItem(input: {
   return null;
 }
 
+export function checkinItemsFor(item: CheckinItem): CheckinItem[] {
+  if (item.instrument !== "phq2") return [item];
+  return CHECKIN_ITEMS.filter((entry) => entry.instrument === "phq2");
+}
+
 export function spokenCheckin(item: CheckinItem, form: AddressForm): string {
+  const when = "En la segunda mitad de la charla, cuando ya hay confianza, no apenas después del saludo";
+  if (item.instrument === "phq2") {
+    const pair = checkinItemsFor(item);
+    const first = pair[0] ?? item;
+    const second = pair[1] ?? item;
+    const firstPrompt = form === "usted" ? first.promptUsted : first.promptVos;
+    const secondPrompt = form === "usted" ? second.promptUsted : second.promptVos;
+    return `${when}, preguntá estas dos cosas en turnos seguidos (es la excepción a una sola pregunta de este tipo), con anclas de frecuencia de las últimas dos semanas. Primero: ${firstPrompt} ${first.scaleHint} Después de que responda: ${secondPrompt} ${second.scaleHint} Llamá log_mood por cada una, con instrument phq2 y el item_id que corresponde. Es una señal, no un diagnóstico.`;
+  }
   const prompt = form === "usted" ? item.promptUsted : item.promptVos;
-  return `${prompt} ${item.scaleHint} Después llamá log_mood con instrument ${item.instrument}, item_id ${item.itemId}, la respuesta textual y el score si se entiende. Es una señal, no un diagnóstico. Una sola pregunta de este tipo en toda la charla.`;
+  return `${when}: ${prompt} ${item.scaleHint} Después llamá log_mood con instrument ${item.instrument}, item_id ${item.itemId}, la respuesta textual y el score si se entiende. Es una señal, no un diagnóstico. Una sola pregunta de este tipo en toda la charla.`;
 }

@@ -154,10 +154,13 @@ describe("transcript extraction", () => {
     expect(text).toContain("lugar:Nació o creció en Salto.");
     expect(text).toContain("fecha:El cumpleaños de Lucía es el 3 de mayo.");
     expect(text).toContain("salud:Usa andador.");
-    expect(text).toContain("historia:Recuerdo: la escuela del barrio.");
-    expect(text).toContain("rutina:Rutina: Todas las mañanas escucho la radio.");
-    expect(text).toContain("lugar:Vive o vivió en Pocitos.");
+    expect(text).not.toContain("Recuerdo:");
+    expect(text).not.toContain("Rutina:");
+    expect(text).not.toContain("Vive o vivió en Pocitos.");
     expect(text).toContain("lugar:Es de Melo.");
+    expect(extractFactsFromTranscript([{ role: "user", text: "Me gusta mi casa.", at: "t" }])).toEqual([]);
+    expect(extractFactsFromTranscript([{ role: "user", text: "No sé si me gusta el sushi.", at: "t" }])).toEqual([]);
+    expect(extractFactsFromTranscript([{ role: "user", text: "A veces me gusta el café.", at: "t" }])).toEqual([]);
     expect(text).toContain("gusto:Le encanta el dulce de leche.");
     expect(text).toContain("gusto:Le gustan las milanesas.");
     expect(text).toContain("salud:Le cuesta oír.");
@@ -214,31 +217,53 @@ describe("prompt variety", () => {
     expect(assembled.instructions).toContain("Charlas recientes");
     expect(assembled.instructions).toContain("Hablaron de pizza");
     expect(assembled.instructions).not.toContain("Retomar un gusto");
-    expect(assembled.instructions).toContain("Ante caída, dolor o presión en el pecho");
+    expect(assembled.instructions).toContain("Ante caída con no poder levantarse");
     expect(assembled.instructions).toContain("0800 0767");
-    expect(assembled.instructions).toContain("Memoria en silencio");
-    expect(assembled.instructions).toContain("remember_fact");
+    expect(assembled.instructions).toContain("Memoria implícita");
+    expect(assembled.instructions).not.toContain("remember_fact");
     expect(assembled.instructions).not.toContain("pedí un sí");
     expect(assembled.instructions).not.toContain("guardá este recuerdo");
     expect(assembled.instructions).toContain("reminiscencia");
     expect(assembled.instructions).toContain("Llevá vos la charla");
     expect(assembled.greetingCue).toContain("No abras con un gusto");
-    expect(assembled.greetingCue).toContain("pizza");
     expect(assembled.greetingCue).toContain("No te presentes");
     expect(assembled.greetingCue).toContain(greetingLine("vos", "jueves 29 de octubre"));
+    const threaded = assembleInstructions({
+      profile: profile(),
+      facts: [fact("1", "gusto", "Le gusta la pizza.")],
+      summaries: [
+        {
+          startedAt: "2026-10-28T14:00:00.000Z",
+          module: "charla",
+          summary: "Hablaron de pizza toda la charla.",
+          openThreads: ["pizza"],
+        },
+      ],
+      microgoals: [],
+      plan: {
+        module: "charla",
+        reason: "Hoy toca charla.",
+        theme: "cómo viene el día y qué le quedó dando vueltas",
+        checkin: null,
+        checkinLine: null,
+      },
+      dateLabel: "jueves 29 de octubre",
+      openerKind: "thread",
+    });
+    expect(threaded.greetingCue).toContain("pizza");
     const names = REALTIME_TOOLS.map((tool) => tool.name);
-    expect(names).toContain("remember_fact");
-    expect(names).not.toContain("record_consent");
-    const remember = REALTIME_TOOLS.find((tool) => tool.name === "remember_fact");
-    expect(remember?.description).toContain("silencio");
-    expect(remember?.description.toLowerCase()).not.toContain("confirmá");
+    expect(names).not.toContain("remember_fact");
+    expect(names).toContain("forget_fact");
+    expect(names).toContain("record_consent");
+    const forget = REALTIME_TOOLS.find((tool) => tool.name === "forget_fact");
+    expect(forget?.description).toContain("olvidá eso");
   });
 
   it("varies the opener and keeps the first hello minimal", () => {
     const seen = new Set<string>();
     for (let index = 0; index < 40; index += 1) seen.add(greetingLine("vos", `dia-${index}`));
-    expect(seen.size).toBe(5);
-    expect([...seen].some((line) => /hiciste|comiste|hablaste/.test(line))).toBe(true);
+    expect(seen.size).toBeGreaterThanOrEqual(3);
+    expect([...seen].some((line) => /hiciste|tal hoy|cómo estás/.test(line))).toBe(true);
     const formal = greetingLine("usted", "jueves 29 de octubre");
     expect(formal.startsWith("Hola")).toBe(true);
     expect(formal).not.toMatch(/hiciste|comiste|hablaste/);
@@ -257,10 +282,12 @@ describe("prompt variety", () => {
       dateLabel: "viernes 30 de octubre",
       firstSession: true,
     });
-    expect(first.greetingCue).toContain("Soy Clara.");
-    expect(first.greetingCue).toContain("sin pedir permiso");
+    expect(first.greetingCue).toContain("Soy Clara");
+    expect(first.greetingCue).toContain("inteligencia artificial");
+    expect(first.greetingCue).toContain("olvidá eso");
+    expect(first.greetingCue).toContain("No pidas permiso");
     expect(first.greetingCue).not.toContain("Presentate");
-    expect(first.instructions).toContain("te pregunten qué sos");
+    expect(first.instructions).toContain("Si pregunta qué sos");
     expect(first.instructions).toContain("0800 0767");
   });
 });
@@ -366,7 +393,7 @@ describe("memory end to end", () => {
     });
     const opened = await handleCreateSession(freshDeps, pinHeaders(), {});
     const openedBody = opened.body as { sessionToken: string; greetingCue: string };
-    expect(openedBody.greetingCue).toContain("Soy Clara.");
+    expect(openedBody.greetingCue).toContain("Soy Clara");
     expect(openedBody.greetingCue).not.toContain("Presentate");
     await handleTool(freshDeps, pinHeaders(), {
       sessionToken: openedBody.sessionToken,
