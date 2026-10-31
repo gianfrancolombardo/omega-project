@@ -8,6 +8,7 @@ import { mintClientSecret } from "@/lib/openai/mint";
 import { shouldAlertFromSummary, summarizeSession } from "@/lib/openai/summarize";
 import { extractFactsFromTranscript } from "@/lib/memory/extract";
 import { mergeIncomingFacts } from "@/lib/memory/reconcile";
+import { memoryIsOpen } from "@/lib/profile";
 import { assembleInstructions } from "@/lib/prompt/assemble";
 import { planDay } from "@/lib/session/planner";
 import { proactiveDecision } from "@/lib/session/proactive";
@@ -115,7 +116,6 @@ export async function handleCreateSession(deps: AppDeps, headers: Headers, body:
     })),
     now,
     addressForm: profile.addressForm,
-    consented: Boolean(profile.userConsentAt),
   });
   const assembled = assembleInstructions({
     profile,
@@ -132,6 +132,7 @@ export async function handleCreateSession(deps: AppDeps, headers: Headers, body:
     microgoals: goals,
     plan,
     dateLabel: formatLongDate(now, timezone),
+    firstSession: !sessions.some((session) => session.status !== "error"),
   });
 
   const created = await deps.store.createSession({
@@ -243,7 +244,7 @@ export async function handleEndSession(deps: AppDeps, headers: Headers, body: un
     summary = produced.summary;
     openThreads = produced.openThreads;
     summarySource = produced.source;
-    if (profile.userConsentAt && !profile.memoryDeclinedAt) {
+    if (memoryIsOpen(profile)) {
       const incoming = mergeIncomingFacts([...extractFactsFromTranscript(turns), ...produced.facts]);
       for (const fact of incoming) {
         await deps.store.addFact({

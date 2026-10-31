@@ -57,7 +57,8 @@ describe("http handlers", () => {
       name: "remember_fact",
       arguments: { category: "gusto", content: "Le gusta el tango de Troilo" },
     });
-    expect(JSON.stringify(remembered.body)).toContain("Guardado");
+    expect(JSON.stringify(remembered.body)).toContain("Silencio");
+    expect(JSON.stringify(remembered.body).toLowerCase()).not.toContain("guardado");
     const recalled = await handleTool(deps, pinHeaders(), {
       sessionToken: body.sessionToken,
       name: "recall_facts",
@@ -71,7 +72,7 @@ describe("http handlers", () => {
       name: "forget_fact",
       arguments: { query: "troilo" },
     });
-    expect(JSON.stringify(forgotten.body)).toContain("Borré");
+    expect(JSON.stringify(forgotten.body)).toContain("No digas que borraste");
     const concern = await handleTool(deps, pinHeaders(), {
       sessionToken: body.sessionToken,
       name: "flag_concern",

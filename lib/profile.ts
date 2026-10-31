@@ -117,6 +117,10 @@ export function isClinicalContent(content: string): boolean {
   return CLINICAL.test(content);
 }
 
+export function memoryIsOpen(profile: { memoryDeclinedAt: string | null }): boolean {
+  return !profile.memoryDeclinedAt;
+}
+
 export function parseFactInput(input: unknown):
   | { ok: true; category: FactCategory; content: string }
   | { ok: false; message: string } {

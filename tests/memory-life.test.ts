@@ -7,7 +7,8 @@ import { handleTool } from "@/lib/http/tools-api";
 import { extractFactsFromTranscript } from "@/lib/memory/extract";
 import { factOverlap, mergeIncomingFacts, planFactWrite } from "@/lib/memory/reconcile";
 import { selectFactsForPrompt } from "@/lib/memory/select";
-import { assembleInstructions } from "@/lib/prompt/assemble";
+import { assembleInstructions, greetingLine } from "@/lib/prompt/assemble";
+import { REALTIME_TOOLS } from "@/lib/prompt/tools";
 import { saveProfileFeedback, activateTabletFeedback } from "@/lib/setup/feedback";
 import type { Fact, Profile } from "@/lib/domain";
 import { depsFor, memoryDb, pinHeaders } from "./helpers";
@@ -215,8 +216,52 @@ describe("prompt variety", () => {
     expect(assembled.instructions).not.toContain("Retomar un gusto");
     expect(assembled.instructions).toContain("Ante caída, dolor o presión en el pecho");
     expect(assembled.instructions).toContain("0800 0767");
+    expect(assembled.instructions).toContain("Memoria en silencio");
+    expect(assembled.instructions).toContain("remember_fact");
+    expect(assembled.instructions).not.toContain("pedí un sí");
+    expect(assembled.instructions).not.toContain("guardá este recuerdo");
+    expect(assembled.instructions).toContain("reminiscencia");
+    expect(assembled.instructions).toContain("Llevá vos la charla");
     expect(assembled.greetingCue).toContain("No abras con un gusto");
     expect(assembled.greetingCue).toContain("pizza");
+    expect(assembled.greetingCue).toContain("No te presentes");
+    expect(assembled.greetingCue).toContain(greetingLine("vos", "jueves 29 de octubre"));
+    const names = REALTIME_TOOLS.map((tool) => tool.name);
+    expect(names).toContain("remember_fact");
+    expect(names).not.toContain("record_consent");
+    const remember = REALTIME_TOOLS.find((tool) => tool.name === "remember_fact");
+    expect(remember?.description).toContain("silencio");
+    expect(remember?.description.toLowerCase()).not.toContain("confirmá");
+  });
+
+  it("varies the opener and keeps the first hello minimal", () => {
+    const seen = new Set<string>();
+    for (let index = 0; index < 40; index += 1) seen.add(greetingLine("vos", `dia-${index}`));
+    expect(seen.size).toBe(5);
+    expect([...seen].some((line) => /hiciste|comiste|hablaste/.test(line))).toBe(true);
+    const formal = greetingLine("usted", "jueves 29 de octubre");
+    expect(formal.startsWith("Hola")).toBe(true);
+    expect(formal).not.toMatch(/hiciste|comiste|hablaste/);
+    const first = assembleInstructions({
+      profile: profile({ userConsentAt: null }),
+      facts: [],
+      summaries: [],
+      microgoals: [],
+      plan: {
+        module: "charla",
+        reason: "Hoy toca charla.",
+        theme: "qué hizo hoy",
+        checkin: null,
+        checkinLine: null,
+      },
+      dateLabel: "viernes 30 de octubre",
+      firstSession: true,
+    });
+    expect(first.greetingCue).toContain("Soy Clara.");
+    expect(first.greetingCue).toContain("sin pedir permiso");
+    expect(first.greetingCue).not.toContain("Presentate");
+    expect(first.instructions).toContain("te pregunten qué sos");
+    expect(first.instructions).toContain("0800 0767");
   });
 });
 
@@ -311,6 +356,33 @@ describe("memory end to end", () => {
     expect(facts.some((item) => item.content.includes("Lucía") && item.content.includes("Salto"))).toBe(true);
     expect(facts.some((item) => item.content.includes("pastilla"))).toBe(false);
     expect(facts.filter((item) => item.content.toLowerCase().includes("helado"))).toHaveLength(1);
+
+    const fresh = await memoryDb();
+    const freshDeps = depsFor(fresh.store, {}, async (input) => {
+      if (String(input).includes("client_secrets")) {
+        return new Response(JSON.stringify({ value: "ek_test" }), { status: 200 });
+      }
+      return new Response("no", { status: 500 });
+    });
+    const opened = await handleCreateSession(freshDeps, pinHeaders(), {});
+    const openedBody = opened.body as { sessionToken: string; greetingCue: string };
+    expect(openedBody.greetingCue).toContain("Soy Clara.");
+    expect(openedBody.greetingCue).not.toContain("Presentate");
+    await handleTool(freshDeps, pinHeaders(), {
+      sessionToken: openedBody.sessionToken,
+      name: "capture_memory",
+      arguments: { text: "Me gusta el queso." },
+    });
+    expect((await fresh.store.listFacts()).some((item) => item.content.includes("queso"))).toBe(true);
+    await handleEndSession(freshDeps, pinHeaders(), {
+      sessionToken: openedBody.sessionToken,
+      outcome: "completed",
+      transcript: [{ role: "user", text: "Me gusta el queso.", at: "t" }],
+    });
+    const again = await handleCreateSession(freshDeps, pinHeaders(), {});
+    expect((again.body as { greetingCue: string }).greetingCue).toContain("No te presentes");
+    expect((again.body as { greetingCue: string }).greetingCue).not.toContain("Es la primera charla");
+    fresh.close();
 
     await store.recordConsent("2026-10-29T16:00:00.000Z", false);
     const declined = await handleCreateSession(deps, pinHeaders(), {});

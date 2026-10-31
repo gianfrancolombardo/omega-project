@@ -90,17 +90,7 @@ export function planDay(input: {
   history: CheckinHistory[];
   now: Date;
   addressForm: AddressForm;
-  consented: boolean;
 }): DayPlan {
-  if (!input.consented) {
-    return {
-      module: "charla",
-      reason: "Todavía no hubo un sí para guardar memoria. La charla es una presentación.",
-      theme: "presentarse como inteligencia artificial y pedir un sí claro",
-      checkin: null,
-      checkinLine: null,
-    };
-  }
   const chosen = chooseModule(input.today, input.recent);
   const checkin = selectCheckinItem({
     sessionCount: input.sessionCount,
